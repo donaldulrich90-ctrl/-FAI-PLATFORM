@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN chmod +x /app/scripts/web-entrypoint.sh
+RUN chmod +x /app/scripts/web-entrypoint.sh /app/scripts/qcluster-entrypoint.sh
 
 EXPOSE 8000
 

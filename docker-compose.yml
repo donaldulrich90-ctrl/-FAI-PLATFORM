@@ -75,6 +75,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-faso_isp}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-faso_isp_secret}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-in-production}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,web}
       DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
@@ -85,6 +86,17 @@ services:
       ZABBIX_API_USER: ${ZABBIX_API_USER:-Admin}
       ZABBIX_API_PASSWORD: ${ZABBIX_API_PASSWORD:-zabbix}
       SNMP_COMMUNITY: ${SNMP_COMMUNITY:-public}
+      MIKROTIK_DEFAULT_BRIDGE_NAME: ${MIKROTIK_DEFAULT_BRIDGE_NAME:-bridge}
+      MIKROTIK_DEFAULT_SSH_USER: ${MIKROTIK_DEFAULT_SSH_USER:-admin}
+      MIKROTIK_SSH_TIMEOUT: ${MIKROTIK_SSH_TIMEOUT:-25}
+      MIKROTIK_FALLBACK_SSH_PASSWORD_ENV: ${MIKROTIK_FALLBACK_SSH_PASSWORD_ENV:-}
+      MIKROTIK_HOTSPOT_SERVER: ${MIKROTIK_HOTSPOT_SERVER:-hotspot1}
+      MIKROTIK_HOTSPOT_DEFAULT_PROFILE: ${MIKROTIK_HOTSPOT_DEFAULT_PROFILE:-}
+      MIKROTIK_HOTSPOT_PROFILE_3H: ${MIKROTIK_HOTSPOT_PROFILE_3H:-Profil-2H}
+      MIKROTIK_HOTSPOT_PROFILE_1D: ${MIKROTIK_HOTSPOT_PROFILE_1D:-Profil-24H}
+      MIKROTIK_HOTSPOT_PROFILE_1W: ${MIKROTIK_HOTSPOT_PROFILE_1W:-7j}
+      MIKROTIK_HOTSPOT_PROFILE_30J: ${MIKROTIK_HOTSPOT_PROFILE_30J:-Profil-30Jours}
+      ROUTER_CONTROL_DRY_RUN: ${ROUTER_CONTROL_DRY_RUN:-0}
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
     depends_on:
       db:
@@ -104,6 +116,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-faso_isp}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-faso_isp_secret}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-in-production}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       DJANGO_DEBUG: "0"
       USE_SQLITE: "0"
       UPTIME_KUMA_URL: ${UPTIME_KUMA_URL:-http://uptime-kuma:3001}
@@ -113,15 +126,26 @@ services:
       SNMP_COMMUNITY: ${SNMP_COMMUNITY:-public}
       MIKROTIK_DEFAULT_BRIDGE_NAME: ${MIKROTIK_DEFAULT_BRIDGE_NAME:-bridge}
       MIKROTIK_DEFAULT_SSH_USER: ${MIKROTIK_DEFAULT_SSH_USER:-admin}
+      MIKROTIK_SSH_TIMEOUT: ${MIKROTIK_SSH_TIMEOUT:-25}
+      MIKROTIK_FALLBACK_SSH_PASSWORD_ENV: ${MIKROTIK_FALLBACK_SSH_PASSWORD_ENV:-}
+      MIKROTIK_HOTSPOT_SERVER: ${MIKROTIK_HOTSPOT_SERVER:-hotspot1}
+      MIKROTIK_HOTSPOT_DEFAULT_PROFILE: ${MIKROTIK_HOTSPOT_DEFAULT_PROFILE:-}
+      MIKROTIK_HOTSPOT_PROFILE_3H: ${MIKROTIK_HOTSPOT_PROFILE_3H:-Profil-2H}
+      MIKROTIK_HOTSPOT_PROFILE_1D: ${MIKROTIK_HOTSPOT_PROFILE_1D:-Profil-24H}
+      MIKROTIK_HOTSPOT_PROFILE_1W: ${MIKROTIK_HOTSPOT_PROFILE_1W:-7j}
+      MIKROTIK_HOTSPOT_PROFILE_30J: ${MIKROTIK_HOTSPOT_PROFILE_30J:-Profil-30Jours}
       ROUTER_CONTROL_DRY_RUN: ${ROUTER_CONTROL_DRY_RUN:-0}
-    command: >
-      sh -c "python manage.py migrate --noinput &&
-             python manage.py setup_schedules &&
-             python manage.py qcluster"
+    entrypoint: ["/bin/sh", "/app/scripts/qcluster-entrypoint.sh"]
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "manage.py", "shell", "-c", "from django_q.models import Schedule; print(Schedule.objects.count())"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
 
 volumes:
   faso_isp_pgdata:
