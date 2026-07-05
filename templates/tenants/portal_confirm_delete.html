@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Supprimer une organisation{% endblock %}
+{% block breadcrumb %}Organisations / Supprimer{% endblock %}
+
+{% block content %}
+<div style="max-width:520px;">
+
+  <a href="{% url 'platform:tenant_list' %}" class="btn btn-ghost btn-sm" style="margin-bottom:22px;">
+    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    Organisations
+  </a>
+
+  <div class="card anim-up-1" style="padding:32px;border-color:rgba(255,69,96,.2);">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px;">
+      <div class="icon-box" style="width:48px;height:48px;background:rgba(255,69,96,.1);flex-shrink:0;">
+        <svg width="22" height="22" fill="none" stroke="var(--red)" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+      </div>
+      <h1 style="font-size:18px;font-weight:700;color:var(--text);">Supprimer l'organisation</h1>
+    </div>
+
+    <p style="font-size:14px;color:var(--text);line-height:1.6;margin-bottom:12px;">
+      Confirmer la suppression de
+      <strong style="color:#e8f4ff;">{{ tenant.name }}</strong>
+      (<span class="mono" style="font-size:13px;color:var(--muted);">{{ tenant.slug }}</span>) ?
+    </p>
+
+    <div class="alert alert-warn" style="margin-bottom:24px;">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+      <span>Les sites et données liés peuvent être supprimés en cascade. Vérifiez qu'aucun client actif n'utilise encore ce locataire.</span>
+    </div>
+
+    <form method="post" style="display:flex;gap:10px;">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-danger btn-md">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+        Supprimer définitivement
+      </button>
+      <a href="{% url 'platform:tenant_list' %}" class="btn btn-ghost btn-md">Annuler</a>
+    </form>
+  </div>
+</div>
+{% endblock %}

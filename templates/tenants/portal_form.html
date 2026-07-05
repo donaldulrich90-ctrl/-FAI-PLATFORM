@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}{{ title }} — Plateforme{% endblock %}
+{% block breadcrumb %}Organisations / {{ title }}{% endblock %}
+
+{% block content %}
+<div style="max-width:560px;">
+
+  <a href="{% url 'platform:tenant_list' %}" class="btn btn-ghost btn-sm" style="margin-bottom:22px;">
+    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    Organisations
+  </a>
+
+  <div class="card anim-up-1" style="padding:32px;">
+    <div class="section-head" style="margin-bottom:26px;">
+      <h2>{{ title }}</h2>
+    </div>
+
+    <form method="post">
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+      <div class="alert alert-error" style="margin-bottom:20px;">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        {{ form.non_field_errors }}
+      </div>
+      {% endif %}
+
+      <div class="field">
+        <label for="id_name">{{ form.name.label }}</label>
+        {{ form.name }}
+        {% if form.name.errors %}<p class="error">{{ form.name.errors.0 }}</p>{% endif %}
+      </div>
+
+      <div class="field">
+        <label for="id_slug">{{ form.slug.label }}</label>
+        {{ form.slug }}
+        {% if form.slug.help_text %}<p class="help">{{ form.slug.help_text }}</p>{% endif %}
+        {% if form.slug.errors %}<p class="error">{{ form.slug.errors.0 }}</p>{% endif %}
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:26px;padding:14px 16px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:11px;">
+        {{ form.is_active }}
+        <label for="id_is_active" style="font-size:14px;color:var(--text);cursor:pointer;margin:0;">{{ form.is_active.label }}</label>
+        {% if form.is_active.errors %}<p class="error" style="margin:0 0 0 auto;">{{ form.is_active.errors.0 }}</p>{% endif %}
+      </div>
+
+      <div style="display:flex;gap:10px;">
+        <button type="submit" class="btn btn-primary btn-md">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          {% if is_create %}Créer l'organisation{% else %}Enregistrer les modifications{% endif %}
+        </button>
+        <a href="{% url 'platform:tenant_list' %}" class="btn btn-ghost btn-md">Annuler</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

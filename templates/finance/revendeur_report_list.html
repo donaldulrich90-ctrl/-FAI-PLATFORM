@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Rapports journaliers revendeurs{% endblock %}
+{% block breadcrumb %}Rapports Journaliers{% endblock %}
+
+{% block content %}
+<div class="page-header anim-up" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:14px;">
+  <div>
+    <h1 class="page-title">Rapports journaliers</h1>
+    <p class="page-sub">Synthèse quotidienne par revendeur — générée automatiquement à 01h00.</p>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <form method="get" action="{% url 'finance:revendeur_reports_export_excel' %}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <input type="date" name="date_from" value="{{ request.GET.date_from }}"
+             style="background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 11px;font-size:13px;font-family:inherit;outline:none;width:auto!important;">
+      <input type="date" name="date_to" value="{{ request.GET.date_to }}"
+             style="background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 11px;font-size:13px;font-family:inherit;outline:none;width:auto!important;">
+      <button type="submit" class="btn btn-success btn-sm">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+        Excel
+      </button>
+    </form>
+  </div>
+</div>
+
+<div class="card anim-up-1" style="overflow:hidden;padding:0;">
+  <div class="section-head" style="padding:18px 22px 0;">
+    <h2>Historique des rapports</h2>
+    <span class="badge badge-slate">{{ reports|length }} rapport{{ reports|length|pluralize }}</span>
+  </div>
+
+  <div style="overflow-x:auto;margin-top:4px;">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th style="text-align:left;">Date</th>
+          <th style="text-align:left;">Revendeur</th>
+          <th style="text-align:left;">Préfixe</th>
+          <th style="text-align:right;">Vendus</th>
+          <th style="text-align:right;">Utilisés</th>
+          <th style="text-align:right;">Brut (XOF)</th>
+          <th style="text-align:right;">Commission</th>
+          <th style="text-align:right;">Net FAI</th>
+          <th style="text-align:center;">Détail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in reports %}
+        <tr>
+          <td>
+            <span style="font-weight:600;color:var(--text);">{{ r.report_date }}</span>
+          </td>
+          <td style="color:var(--text);">{{ r.revendeur.get_full_name|default:r.revendeur.username }}</td>
+          <td>
+            {% if r.prefix %}
+            <span class="badge badge-cyan mono" style="font-size:11px;">{{ r.prefix }}</span>
+            {% else %}
+            <span style="color:var(--muted);">—</span>
+            {% endif %}
+          </td>
+          <td style="text-align:right;" class="mono">{{ r.tickets_sold_count }}</td>
+          <td style="text-align:right;" class="mono">
+            <span style="color:var(--cyan);">{{ r.tickets_used_count }}</span>
+          </td>
+          <td style="text-align:right;" class="mono">{{ r.gross_xof }}</td>
+          <td style="text-align:right;" class="mono">
+            <span style="color:var(--amber);">{{ r.commission_xof }}</span>
+          </td>
+          <td style="text-align:right;" class="mono">
+            <span style="color:var(--green);font-weight:700;">{{ r.net_isp_xof }}</span>
+          </td>
+          <td style="text-align:center;">
+            <a href="{% url 'finance:revendeur_report_detail' r.pk %}" class="btn btn-ghost btn-sm" style="padding:5px 12px;font-size:12px;">
+              Voir
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+            </a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="9">
+            <div class="empty-state">
+              <svg width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              <p>Aucun rapport disponible.</p>
+              <p style="font-size:12px;margin-top:4px;color:var(--muted);">Les rapports sont générés automatiquement chaque soir à 23h59.</p>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

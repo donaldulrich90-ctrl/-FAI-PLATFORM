@@ -1,0 +1,13 @@
+# Développement local : code monté depuis le dossier + Postgres accessible sur le PC hôte.
+# Usage : docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+services:
+  db:
+    ports:
+      - "5432:5432"
+
+  web:
+    volumes:
+      - .:/app
+    environment:
+      DJANGO_DEBUG: "1"
+      # Décommenter dans .env : DJANGO_BOOTSTRAP_ADMIN_PASSWORD=... pour fixer le mot de passe du compte demo après migrate

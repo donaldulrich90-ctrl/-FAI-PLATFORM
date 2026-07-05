@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Rapport {{ report.report_date }} — {{ report.revendeur.username }}{% endblock %}
+{% block breadcrumb %}Rapports / {{ report.report_date }}{% endblock %}
+
+{% block content %}
+
+<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:26px;" class="anim-up">
+  <div>
+    <a href="{% url 'finance:revendeur_report_list' %}" class="btn btn-ghost btn-sm" style="margin-bottom:14px;">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      Retour aux rapports
+    </a>
+    <h1 class="page-title">Rapport du {{ report.report_date }}</h1>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px;">
+      <span style="font-size:13px;color:var(--dim);">
+        <svg style="display:inline;vertical-align:-2px;" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+        {{ report.revendeur.get_full_name|default:report.revendeur.username }}
+      </span>
+      {% if report.prefix %}
+      <span class="badge badge-cyan mono" style="font-size:12px;">{{ report.prefix }}</span>
+      {% endif %}
+      <span style="font-size:12px;color:var(--muted);">Généré le {{ report.generated_at|date:"d/m/Y à H:i" }}</span>
+    </div>
+  </div>
+  <div>
+    <a href="{% url 'finance:revendeur_report_export_excel' report.pk %}" class="btn btn-success btn-sm">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+      Exporter Excel
+    </a>
+  </div>
+</div>
+
+<!-- Stat cards -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px;">
+  <div class="stat-card anim-up-1" style="--accent-color:rgba(0,194,255,.15);">
+    <div class="stat-icon" style="background:rgba(0,194,255,.12);">
+      <svg width="20" height="20" fill="none" stroke="var(--cyan)" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"/></svg>
+    </div>
+    <p class="stat-label">Tickets vendus</p>
+    <p class="stat-value" style="color:var(--cyan);">{{ report.tickets_sold_count }}</p>
+  </div>
+
+  <div class="stat-card anim-up-2" style="--accent-color:rgba(99,179,237,.12);">
+    <div class="stat-icon" style="background:rgba(99,179,237,.1);">
+      <svg width="20" height="20" fill="none" stroke="#63b3ed" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    </div>
+    <p class="stat-label">Tickets utilisés</p>
+    <p class="stat-value" style="color:#63b3ed;">{{ report.tickets_used_count }}</p>
+  </div>
+
+  <div class="stat-card anim-up-3" style="--accent-color:rgba(255,179,64,.12);">
+    <div class="stat-icon" style="background:rgba(255,179,64,.1);">
+      <svg width="20" height="20" fill="none" stroke="var(--amber)" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    </div>
+    <p class="stat-label">Commission</p>
+    <p class="stat-value" style="color:var(--amber);font-size:20px;">{{ report.commission_xof }} <span style="font-size:12px;color:var(--muted);">XOF</span></p>
+  </div>
+
+  <div class="stat-card anim-up-4" style="--accent-color:rgba(0,229,153,.12);">
+    <div class="stat-icon" style="background:rgba(0,229,153,.1);">
+      <svg width="20" height="20" fill="none" stroke="var(--green)" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+    </div>
+    <p class="stat-label">Net FAI</p>
+    <p class="stat-value" style="color:var(--green);font-size:20px;">{{ report.net_isp_xof }} <span style="font-size:12px;color:var(--muted);">XOF</span></p>
+  </div>
+</div>
+
+<!-- Récapitulatif financier -->
+<div class="card anim-up-2" style="padding:24px;margin-bottom:22px;">
+  <div class="section-head">
+    <h2>Récapitulatif financier</h2>
+  </div>
+  <div>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-bottom:1px solid rgba(255,255,255,.04);">
+      <span style="font-size:13.5px;color:var(--dim);">Montant brut encaissé</span>
+      <span class="mono" style="font-weight:600;color:var(--text);">{{ report.gross_xof }} XOF</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-bottom:1px solid rgba(255,255,255,.04);">
+      <span style="font-size:13.5px;color:var(--dim);">Commission revendeur{% if report.prefix %} ({{ report.prefix }}){% endif %}</span>
+      <span class="mono" style="color:var(--amber);">− {{ report.commission_xof }} XOF</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:13px 0;">
+      <span style="font-size:14px;font-weight:700;color:var(--text);">Net FAI</span>
+      <span class="mono" style="font-size:16px;font-weight:700;color:var(--green);">{{ report.net_isp_xof }} XOF</span>
+    </div>
+  </div>
+</div>
+
+<!-- Détail tickets -->
+<div class="card anim-up-3" style="overflow:hidden;padding:0;">
+  <div class="section-head" style="padding:18px 22px 0;">
+    <h2>Détail des tickets</h2>
+    <span class="badge badge-slate">{{ report.detail_json|length }} ticket{{ report.detail_json|length|pluralize }}</span>
+  </div>
+  <div style="overflow-x:auto;margin-top:4px;">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th style="text-align:left;">Code</th>
+          <th style="text-align:left;">Durée</th>
+          <th style="text-align:left;">Site</th>
+          <th style="text-align:right;">Prix (XOF)</th>
+          <th style="text-align:right;">Commission</th>
+          <th style="text-align:right;">Net FAI</th>
+          <th style="text-align:center;">Statut</th>
+          <th style="text-align:center;">MikroTik</th>
+          <th style="text-align:left;">Vendu le</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in report.detail_json %}
+        <tr>
+          <td>
+            <span class="mono" style="color:var(--cyan);font-size:13px;">{{ t.code }}</span>
+          </td>
+          <td>
+            <span class="badge badge-slate" style="font-size:11px;">
+              {% if t.duration == "3h" %}3 h
+              {% elif t.duration == "1d" %}24 h
+              {% elif t.duration == "1w" %}7 jours
+              {% elif t.duration == "30j" %}30 jours
+              {% else %}{{ t.duration }}{% endif %}
+            </span>
+          </td>
+          <td style="color:var(--dim);">{{ t.site_name|default:t.site }}</td>
+          <td style="text-align:right;" class="mono">{{ t.price_xof }}</td>
+          <td style="text-align:right;" class="mono"><span style="color:var(--amber);">{{ t.commission_xof }}</span></td>
+          <td style="text-align:right;" class="mono"><span style="color:var(--green);">{{ t.net_isp_xof }}</span></td>
+          <td style="text-align:center;">
+            {% if t.status == "used" %}
+            <span class="badge badge-blue" style="font-size:11px;">Utilisé</span>
+            {% elif t.status == "expired" %}
+            <span class="badge badge-red" style="font-size:11px;">Expiré</span>
+            {% else %}
+            <span class="badge badge-green" style="font-size:11px;">Disponible</span>
+            {% endif %}
+          </td>
+          <td style="text-align:center;">
+            {% if t.hotspot_synced %}
+            <span style="color:var(--green);" title="Synchronisé">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            </span>
+            {% elif t.hotspot_error %}
+            <span style="color:var(--red);" title="{{ t.hotspot_error }}">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </span>
+            {% else %}
+            <span style="color:var(--muted);">—</span>
+            {% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--muted);">
+            {% if t.sold_at %}{{ t.sold_at|slice:":16"|default:"—" }}{% else %}—{% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="9">
+            <div class="empty-state"><p>Aucun ticket dans ce rapport.</p></div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

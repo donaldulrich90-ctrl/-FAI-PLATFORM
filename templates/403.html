@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Accès refusé — Faso ISP{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:center;min-height:60vh;">
+  <div class="card anim-up" style="max-width:460px;width:100%;padding:52px 44px;text-align:center;border-color:rgba(255,179,64,.2);">
+
+    <div style="width:72px;height:72px;border-radius:20px;background:rgba(255,179,64,.1);border:1px solid rgba(255,179,64,.2);display:flex;align-items:center;justify-content:center;margin:0 auto 24px;">
+      <svg width="34" height="34" fill="none" stroke="var(--amber)" stroke-width="1.5" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+      </svg>
+    </div>
+
+    <h1 style="font-size:24px;font-weight:800;color:#e8f4ff;margin-bottom:10px;">Accès refusé</h1>
+    <p style="font-size:14px;color:var(--dim);line-height:1.6;margin-bottom:30px;">
+      Vous n'avez pas les droits nécessaires pour accéder à cette page.
+    </p>
+
+    {% if user.is_authenticated %}
+    <a href="{% url 'accounts:home' %}" class="btn btn-primary btn-md" style="width:100%;">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+      Retour à l'accueil
+    </a>
+    {% else %}
+    <a href="{% url 'accounts:login' %}" class="btn btn-primary btn-md" style="width:100%;">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/></svg>
+      Se connecter
+    </a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,129 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: faso_isp_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-faso_isp}
+      POSTGRES_USER: ${POSTGRES_USER:-faso_isp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-faso_isp_secret}
+    volumes:
+      - faso_isp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-faso_isp} -d ${POSTGRES_DB:-faso_isp}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  zabbix-db:
+    image: postgres:16-alpine
+    container_name: faso_isp_zabbix_db
+    environment:
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: ${ZABBIX_DB_PASSWORD:-zabbix_db_secret}
+      POSTGRES_DB: zabbix
+    volumes:
+      - zabbix_pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  zabbix-server:
+    image: zabbix/zabbix-server-pgsql:ubuntu-6.4-latest
+    container_name: faso_isp_zabbix_server
+    depends_on:
+      - zabbix-db
+    environment:
+      DB_SERVER_HOST: zabbix-db
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: ${ZABBIX_DB_PASSWORD:-zabbix_db_secret}
+      POSTGRES_DB: zabbix
+    ports:
+      - "10051:10051"
+    restart: unless-stopped
+
+  zabbix-web:
+    image: zabbix/zabbix-web-nginx-pgsql:ubuntu-6.4-latest
+    container_name: faso_isp_zabbix_web
+    depends_on:
+      - zabbix-db
+      - zabbix-server
+    environment:
+      ZBX_SERVER_HOST: zabbix-server
+      DB_SERVER_HOST: zabbix-db
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: ${ZABBIX_DB_PASSWORD:-zabbix_db_secret}
+      POSTGRES_DB: zabbix
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: faso_isp_uptime_kuma
+    volumes:
+      - uptime_kuma_data:/app/data
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+
+  web:
+    build: .
+    container_name: faso_isp_django
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-faso_isp}
+      POSTGRES_USER: ${POSTGRES_USER:-faso_isp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-faso_isp_secret}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-in-production}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,web}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
+      DJANGO_BEHIND_TLS_PROXY: ${DJANGO_BEHIND_TLS_PROXY:-0}
+      USE_SQLITE: "0"
+      UPTIME_KUMA_URL: ${UPTIME_KUMA_URL:-http://uptime-kuma:3001}
+      ZABBIX_API_URL: ${ZABBIX_API_URL:-http://zabbix-web:8080/api_jsonrpc.php}
+      ZABBIX_API_USER: ${ZABBIX_API_USER:-Admin}
+      ZABBIX_API_PASSWORD: ${ZABBIX_API_PASSWORD:-zabbix}
+      SNMP_COMMUNITY: ${SNMP_COMMUNITY:-public}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${WEB_PUBLISH_PORT:-8000}:8000"
+    entrypoint: ["/bin/sh", "/app/scripts/web-entrypoint.sh"]
+    restart: unless-stopped
+
+  qcluster:
+    build: .
+    container_name: faso_isp_qcluster
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-faso_isp}
+      POSTGRES_USER: ${POSTGRES_USER:-faso_isp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-faso_isp_secret}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-in-production}
+      DJANGO_DEBUG: "0"
+      USE_SQLITE: "0"
+      UPTIME_KUMA_URL: ${UPTIME_KUMA_URL:-http://uptime-kuma:3001}
+      ZABBIX_API_URL: ${ZABBIX_API_URL:-http://zabbix-web:8080/api_jsonrpc.php}
+      ZABBIX_API_USER: ${ZABBIX_API_USER:-Admin}
+      ZABBIX_API_PASSWORD: ${ZABBIX_API_PASSWORD:-zabbix}
+      SNMP_COMMUNITY: ${SNMP_COMMUNITY:-public}
+      MIKROTIK_DEFAULT_BRIDGE_NAME: ${MIKROTIK_DEFAULT_BRIDGE_NAME:-bridge}
+      MIKROTIK_DEFAULT_SSH_USER: ${MIKROTIK_DEFAULT_SSH_USER:-admin}
+      ROUTER_CONTROL_DRY_RUN: ${ROUTER_CONTROL_DRY_RUN:-0}
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py setup_schedules &&
+             python manage.py qcluster"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  faso_isp_pgdata:
+  zabbix_pgdata:
+  uptime_kuma_data:

@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Changer fréquence — {{ device.name }}{% endblock %}
+{% block breadcrumb %}Monitoring / Antennes / {{ device.name }}{% endblock %}
+
+{% block content %}
+<div style="max-width:640px;">
+
+  <a href="{% url 'monitoring:antenna_list' %}" class="btn btn-ghost btn-sm anim-up" style="margin-bottom:20px;">
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    Retour aux antennes
+  </a>
+
+  <div class="card anim-up-1" style="padding:28px;">
+
+    <!-- En-tête équipement -->
+    <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:24px;">
+      <div class="icon-box" style="background:rgba(255,179,64,.1);border:1px solid rgba(255,179,64,.2);">
+        <svg width="20" height="20" fill="none" stroke="var(--amber)" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="page-title" style="font-size:18px;">{{ device.name }}</h1>
+        <div style="font-size:13px;color:var(--dim);margin-top:4px;">
+          {{ device.site.name }} &nbsp;·&nbsp;
+          <span class="mono" style="color:var(--cyan);">{{ device.management_host }}</span>:{{ device.ssh_port }}
+        </div>
+        {% if current_freq %}
+        <div style="margin-top:10px;">
+          <span style="font-size:12px;color:var(--muted);">Fréquence actuelle :</span>
+          <span class="mono badge badge-cyan" style="font-size:13px;margin-left:6px;">{{ current_freq }} MHz</span>
+        </div>
+        {% else %}
+        <div style="margin-top:10px;">
+          <span class="badge badge-slate" style="font-size:11px;">Fréquence non détectée (SSH non disponible ou paramètre inconnu)</span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if not confirm_step %}
+    <!-- ── ÉTAPE 1 : Sélection fréquence ── -->
+
+    <div class="alert alert-warn" style="margin-bottom:22px;">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="flex-shrink:0">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      </svg>
+      <div>
+        <strong>Liaison PtP ?</strong> Changez d'abord l'antenne <strong>distante</strong>, puis cette antenne.
+        Chaque redémarrage cause ~30 s d'indisponibilité.
+      </div>
+    </div>
+
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="confirmed" value="0">
+
+      <div class="field">
+        <label for="freq_mhz">Nouvelle fréquence (5 GHz)</label>
+        <select name="freq_mhz" id="freq_mhz" required>
+          {% for freq_val, freq_label in frequencies %}
+          <option value="{{ freq_val }}" {% if freq_val == current_freq %}selected{% endif %}>{{ freq_label }}</option>
+          {% endfor %}
+        </select>
+        <div class="help">Sélectionnez une fréquence parmi les canaux 5 GHz autorisés.</div>
+      </div>
+
+      <button type="submit" class="btn btn-amber btn-md" style="width:100%;margin-top:8px;">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+        </svg>
+        Continuer — vérifier avant d'appliquer
+      </button>
+    </form>
+
+    {% else %}
+    <!-- ── ÉTAPE 2 : Confirmation ── -->
+
+    <div class="alert alert-error" style="margin-bottom:22px;">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="flex-shrink:0">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      </svg>
+      <div>
+        <strong>Confirmation requise.</strong><br>
+        Cette action va modifier la configuration radio et <strong>redémarrer l'antenne</strong>.
+        La liaison sera indisponible pendant environ 30 secondes.
+      </div>
+    </div>
+
+    <div class="card" style="padding:18px;margin-bottom:22px;background:var(--card2);">
+      <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05);">
+        <span style="color:var(--dim);font-size:13px;">Équipement</span>
+        <span style="font-weight:600;">{{ device.name }}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05);">
+        <span style="color:var(--dim);font-size:13px;">Fréquence actuelle</span>
+        <span class="mono">{% if current_freq %}{{ current_freq }} MHz{% else %}Inconnue{% endif %}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:10px 0;">
+        <span style="color:var(--dim);font-size:13px;">Nouvelle fréquence</span>
+        <span class="mono" style="color:var(--amber);font-weight:700;">{{ freq_mhz }} MHz</span>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px;">
+      <a href="{% url 'monitoring:antenna_freq_change' device.pk %}" class="btn btn-ghost btn-md" style="flex:1;justify-content:center;">
+        Annuler
+      </a>
+      <form method="post" style="flex:2;">
+        {% csrf_token %}
+        <input type="hidden" name="freq_mhz" value="{{ freq_mhz }}">
+        <input type="hidden" name="confirmed" value="1">
+        <button type="submit" class="btn btn-danger btn-md" style="width:100%;">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+          </svg>
+          Confirmer — Appliquer {{ freq_mhz }} MHz et redémarrer
+        </button>
+      </form>
+    </div>
+
+    {% endif %}
+
+  </div><!-- /card -->
+</div>
+{% endblock %}

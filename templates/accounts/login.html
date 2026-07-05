@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Connexion — Faso ISP Manager{% endblock %}
+{% block extra_head %}
+<style>
+  body {
+    background:
+      radial-gradient(ellipse at 25% 15%, rgba(0,100,200,.15) 0%, transparent 55%),
+      radial-gradient(ellipse at 75% 85%, rgba(0,229,153,.07) 0%, transparent 50%),
+      var(--bg);
+  }
+  .login-wrap { display:flex; align-items:center; justify-content:center; min-height:100vh; padding:24px; }
+  .login-box {
+    width:100%; max-width:430px;
+    background: linear-gradient(160deg, #0c1a2e 0%, #060e20 100%);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 48px 44px;
+    box-shadow: 0 40px 90px rgba(0,0,0,.55), 0 0 0 1px rgba(0,194,255,.06) inset;
+    animation: fadeUp .5s ease forwards;
+  }
+  .login-logo { display:flex; align-items:center; gap:14px; margin-bottom:36px; }
+  .login-logo-icon {
+    width:52px; height:52px;
+    background: linear-gradient(135deg, #00c2ff 0%, #0060a0 100%);
+    border-radius: 16px;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow: 0 0 32px rgba(0,194,255,.4);
+    flex-shrink:0;
+  }
+  .login-title   { font-size:21px; font-weight:800; color:#e8f4ff; letter-spacing:-.4px; }
+  .login-sub-txt { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; margin-top:3px; }
+  hr.login-div   { border:none; border-top:1px solid var(--border); margin:0 0 30px; }
+  .login-label   { display:block; font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); margin-bottom:8px; }
+  .login-input {
+    width:100%;
+    background: rgba(255,255,255,.04);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 12px;
+    padding: 13px 16px;
+    font-size: 14.5px;
+    font-family: inherit;
+    outline: none;
+    transition: all .25s;
+    margin-bottom:18px;
+  }
+  .login-input:focus {
+    border-color: var(--cyan);
+    box-shadow: 0 0 0 3px rgba(0,194,255,.1);
+    background: rgba(0,194,255,.035);
+  }
+  .login-input::placeholder { color: var(--muted); }
+  .login-btn {
+    width:100%; margin-top:10px;
+    background: linear-gradient(135deg, #00c2ff 0%, #0082c8 100%);
+    color: #001a2e;
+    border: none; border-radius: 13px;
+    padding: 15px;
+    font-size: 15px; font-weight: 700; font-family: inherit; letter-spacing:.02em;
+    cursor: pointer; transition: all .25s;
+  }
+  .login-btn:hover { filter:brightness(1.1); transform:translateY(-2px); box-shadow:0 10px 32px rgba(0,194,255,.42); }
+  .login-btn:active { transform:translateY(0); box-shadow:none; }
+  .err-box {
+    background: rgba(255,69,96,.08);
+    border: 1px solid rgba(255,69,96,.28);
+    border-radius: 12px; padding:13px 16px;
+    font-size: 13px; color: #ff9090;
+    display:flex; align-items:center; gap:9px;
+    margin-bottom: 24px;
+  }
+  .admin-link { display:block; text-align:center; margin-top:22px; font-size:12px; color:var(--muted); }
+  .admin-link a { color:var(--cyan); text-decoration:none; }
+  .admin-link a:hover { text-decoration:underline; }
+  /* particles deco */
+  .deco { position:fixed; inset:0; pointer-events:none; overflow:hidden; z-index:0; }
+  .deco-dot { position:absolute; border-radius:50%; background:var(--cyan); opacity:.04; animation:pulse 4s infinite; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="deco" aria-hidden="true">
+  <div class="deco-dot" style="width:300px;height:300px;top:-80px;left:-80px;animation-delay:0s;"></div>
+  <div class="deco-dot" style="width:200px;height:200px;bottom:-60px;right:-60px;animation-delay:1.5s;background:var(--green);"></div>
+</div>
+<div class="login-wrap" style="position:relative;z-index:1;">
+  <div class="login-box">
+
+    <div class="login-logo">
+      <div class="login-logo-icon">
+        <svg width="24" height="24" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+        </svg>
+      </div>
+      <div>
+        <div class="login-title">Faso ISP Manager</div>
+        <div class="login-sub-txt">Plateforme de gestion FAI</div>
+      </div>
+    </div>
+
+    <hr class="login-div">
+
+    {% if form.errors %}
+    <div class="err-box">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      Identifiants incorrects ou compte inactif.
+    </div>
+    {% endif %}
+
+    <form method="post" action="{% url 'accounts:login' %}">
+      {% csrf_token %}
+      {% if request.GET.next %}
+      <input type="hidden" name="next" value="{{ request.GET.next }}">
+      {% endif %}
+
+      <label class="login-label" for="id_username">Nom d'utilisateur</label>
+      <input class="login-input" type="text" name="username" id="id_username"
+             required autofocus autocomplete="username"
+             placeholder="votre identifiant"
+             value="{{ form.username.value|default:'' }}">
+
+      <label class="login-label" for="id_password">Mot de passe</label>
+      <input class="login-input" type="password" name="password" id="id_password"
+             required autocomplete="current-password"
+             placeholder="••••••••">
+
+      <button type="submit" class="login-btn">
+        Se connecter
+        <svg style="display:inline;margin-left:8px;vertical-align:-3px;" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </button>
+    </form>
+
+    <p class="admin-link">
+      Accès administration :
+      <a href="/admin/">Django Admin</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

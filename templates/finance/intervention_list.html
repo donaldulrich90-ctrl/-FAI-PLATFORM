@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Interventions terrain{% endblock %}
+{% block breadcrumb %}Interventions{% endblock %}
+
+{% block content %}
+<div class="page-header anim-up">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+    <div>
+      <h1 class="page-title">Interventions terrain</h1>
+      <p class="page-sub">Tickets de panne — suivi et mise à jour depuis le terrain.</p>
+    </div>
+    <span class="badge badge-slate">{{ tickets|length }} ticket{{ tickets|length|pluralize }}</span>
+  </div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:14px;">
+  {% for t in tickets %}
+  <div class="card anim-up-{{ forloop.counter|add:0 }}" style="padding:20px 24px;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+
+      <div style="display:flex;align-items:flex-start;gap:14px;flex:1;min-width:0;">
+        <div class="icon-box" style="margin-top:2px;flex-shrink:0;
+          {% if t.status == 'in_progress' %}background:rgba(0,194,255,.1);
+          {% elif t.status == 'resolved' or t.status == 'closed' %}background:rgba(0,229,153,.1);
+          {% else %}background:rgba(255,255,255,.05);{% endif %}">
+          <svg width="17" height="17" fill="none" stroke="
+            {% if t.status == 'in_progress' %}var(--cyan)
+            {% elif t.status == 'resolved' or t.status == 'closed' %}var(--green)
+            {% else %}var(--dim){% endif %}"
+            stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+          </svg>
+        </div>
+
+        <div style="min-width:0;">
+          <p class="mono" style="font-size:11px;color:var(--muted);margin-bottom:3px;">{{ t.reference }}</p>
+          <p style="font-size:15px;font-weight:600;color:var(--text);">{{ t.title }}</p>
+          <div style="display:flex;align-items:center;gap:14px;margin-top:6px;flex-wrap:wrap;">
+            <span style="font-size:12.5px;color:var(--dim);">
+              <svg style="display:inline;vertical-align:-2px;" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+              {{ t.site.name }}
+            </span>
+            {% if t.faulty_link %}
+            <span class="badge badge-amber" style="font-size:11px;">
+              Liaison : {{ t.faulty_link.name }}
+            </span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:12px;flex-shrink:0;">
+        <span class="badge
+          {% if t.status == 'open' %}badge-slate
+          {% elif t.status == 'in_progress' %}badge-cyan
+          {% elif t.status == 'resolved' or t.status == 'closed' %}badge-green
+          {% else %}badge-slate{% endif %}">
+          {{ t.get_status_display }}
+        </span>
+        <a href="{% url 'finance:intervention_update' t.pk %}" class="btn btn-primary btn-sm">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+          Mettre à jour
+        </a>
+      </div>
+    </div>
+  </div>
+  {% empty %}
+  <div class="card">
+    <div class="empty-state">
+      <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <p style="font-size:15px;margin-top:8px;">Aucun ticket d'intervention actif.</p>
+      <p style="font-size:13px;margin-top:4px;color:var(--muted);">Tous les sites fonctionnent normalement.</p>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

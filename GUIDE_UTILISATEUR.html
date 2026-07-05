@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guide Utilisateur — Faso ISP Manager</title>
+<style>
+  :root {
+    --blue:    #0A3D62;
+    --blue2:   #1B4F72;
+    --cyan:    #00c2ff;
+    --green:   #00b377;
+    --amber:   #d4860a;
+    --red:     #c0392b;
+    --text:    #1a2a3a;
+    --muted:   #5a7a8a;
+    --border:  #d0dde8;
+    --bg:      #f5f8fc;
+    --card:    #ffffff;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  /* ── Layout ── */
+  .wrapper { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
+
+  /* ── Sidebar TOC ── */
+  .toc {
+    position: sticky; top: 0; height: 100vh; overflow-y: auto;
+    background: var(--blue);
+    color: #cde;
+    padding: 30px 0 40px;
+  }
+  .toc-logo {
+    padding: 0 22px 24px;
+    border-bottom: 1px solid rgba(255,255,255,.1);
+    margin-bottom: 18px;
+  }
+  .toc-logo h1 { font-size: 17px; font-weight: 800; color: #fff; letter-spacing: -.3px; }
+  .toc-logo p  { font-size: 11px; color: rgba(255,255,255,.45); margin-top: 3px; text-transform: uppercase; letter-spacing: .08em; }
+
+  .toc-section { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; color: rgba(255,255,255,.35); padding: 0 22px; margin: 18px 0 5px; }
+  .toc a {
+    display: block; padding: 7px 22px; font-size: 13px; color: rgba(255,255,255,.65);
+    text-decoration: none; transition: all .15s; border-left: 3px solid transparent;
+  }
+  .toc a:hover { color: #fff; background: rgba(255,255,255,.08); border-left-color: var(--cyan); }
+
+  /* ── Main content ── */
+  .content { padding: 48px 56px 80px; max-width: 960px; }
+
+  /* ── Cover ── */
+  .cover {
+    background: linear-gradient(135deg, var(--blue) 0%, #0d4f7a 100%);
+    color: #fff;
+    border-radius: 20px;
+    padding: 52px 56px;
+    margin-bottom: 52px;
+    position: relative;
+    overflow: hidden;
+  }
+  .cover::after {
+    content: '';
+    position: absolute; right: -40px; top: -40px;
+    width: 280px; height: 280px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(0,194,255,.18) 0%, transparent 70%);
+  }
+  .cover h1 { font-size: 34px; font-weight: 900; letter-spacing: -.8px; margin-bottom: 10px; }
+  .cover p  { font-size: 16px; color: rgba(255,255,255,.7); max-width: 560px; }
+  .cover-meta { display: flex; gap: 28px; margin-top: 28px; flex-wrap: wrap; }
+  .cover-meta span { font-size: 12px; color: rgba(255,255,255,.5); }
+  .cover-meta strong { color: rgba(255,255,255,.9); display: block; font-size: 14px; }
+
+  /* ── Sections ── */
+  .section { margin-bottom: 60px; }
+  .section-anchor { display: block; height: 0; margin-top: -20px; padding-top: 80px; }
+
+  h2 {
+    font-size: 24px; font-weight: 800; color: var(--blue);
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 10px; margin-bottom: 24px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  h2 .num {
+    background: var(--blue); color: #fff;
+    width: 32px; height: 32px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; flex-shrink: 0;
+  }
+  h3 { font-size: 17px; font-weight: 700; color: var(--blue2); margin: 28px 0 12px; }
+  h4 { font-size: 14px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: 20px 0 8px; }
+
+  p { margin-bottom: 14px; color: #2a3a4a; }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px 28px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.05);
+  }
+
+  /* ── Roles grid ── */
+  .roles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 28px; }
+  .role-card {
+    border-radius: 14px; padding: 22px;
+    border: 2px solid;
+  }
+  .role-card.admin   { border-color: #0A3D62; background: #f0f6ff; }
+  .role-card.tech    { border-color: #d4860a; background: #fffbf0; }
+  .role-card.rev     { border-color: #00b377; background: #f0fff8; }
+  .role-card h3 { margin: 0 0 8px; font-size: 15px; }
+  .role-card.admin h3   { color: #0A3D62; }
+  .role-card.tech  h3   { color: #d4860a; }
+  .role-card.rev   h3   { color: #00b377; }
+  .role-card ul { padding-left: 18px; font-size: 13px; color: #445; line-height: 1.8; }
+
+  /* ── Steps ── */
+  .steps { counter-reset: step; list-style: none; padding: 0; }
+  .steps li {
+    counter-increment: step;
+    display: flex; gap: 16px; margin-bottom: 16px; align-items: flex-start;
+  }
+  .steps li::before {
+    content: counter(step);
+    background: var(--blue); color: #fff;
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; flex-shrink: 0; margin-top: 2px;
+  }
+  .steps li div { padding-top: 3px; }
+  .steps li strong { display: block; margin-bottom: 3px; }
+
+  /* ── Badges ── */
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; vertical-align: middle;
+  }
+  .badge-blue   { background: #e8f0fe; color: #0A3D62; border: 1px solid #b8d0f0; }
+  .badge-green  { background: #e8fff5; color: #00793f; border: 1px solid #a0e0c0; }
+  .badge-amber  { background: #fff8e8; color: #a06000; border: 1px solid #f0d080; }
+  .badge-red    { background: #fff0ee; color: #c0392b; border: 1px solid #f0b0a8; }
+  .badge-gray   { background: #f0f4f8; color: #5a7a8a; border: 1px solid #c8d8e8; }
+
+  /* ── URL path ── */
+  .url {
+    font-family: 'Consolas', 'Courier New', monospace;
+    background: #f0f4f8; border: 1px solid var(--border);
+    border-radius: 6px; padding: 2px 8px; font-size: 13px; color: #0A3D62;
+  }
+
+  /* ── Info / warning boxes ── */
+  .info-box, .warn-box, .tip-box {
+    border-radius: 12px; padding: 16px 20px;
+    margin: 16px 0; display: flex; gap: 14px; align-items: flex-start;
+  }
+  .info-box { background: #eef6ff; border: 1px solid #b0d4f8; }
+  .warn-box { background: #fffbee; border: 1px solid #f8e0a0; }
+  .tip-box  { background: #efffee; border: 1px solid #a8e8b8; }
+  .info-box .icon { font-size: 18px; }
+  .warn-box .icon { font-size: 18px; }
+  .tip-box  .icon { font-size: 18px; }
+  .info-box p, .warn-box p, .tip-box p { margin: 0; font-size: 14px; }
+
+  /* ── Table ── */
+  table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; font-size: 14px; }
+  thead th {
+    background: var(--blue); color: #fff;
+    padding: 11px 16px; text-align: left;
+    font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+  }
+  thead th:first-child { border-radius: 8px 0 0 0; }
+  thead th:last-child  { border-radius: 0 8px 0 0; }
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:nth-child(even) { background: #f8fafc; }
+  tbody td { padding: 11px 16px; }
+
+  /* ── Screen mockup ── */
+  .screen {
+    background: #1a2a3a;
+    border-radius: 14px;
+    padding: 20px 24px;
+    margin: 16px 0 24px;
+    font-family: 'Consolas', monospace;
+    font-size: 13px;
+    color: #8ab8d8;
+    line-height: 1.8;
+    border: 1px solid #2a3a4a;
+    position: relative;
+  }
+  .screen::before {
+    content: '● ● ●';
+    display: block; color: rgba(255,255,255,.2);
+    font-size: 10px; letter-spacing: 6px;
+    margin-bottom: 12px;
+  }
+  .screen .hl-green  { color: #00e599; font-weight: 600; }
+  .screen .hl-cyan   { color: #00c2ff; }
+  .screen .hl-amber  { color: #ffb340; }
+  .screen .hl-red    { color: #ff4560; }
+  .screen .hl-dim    { color: rgba(255,255,255,.3); }
+  .screen .hl-white  { color: #fff; font-weight: 600; }
+
+  /* ── Feature grid ── */
+  .feat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 16px 0 24px; }
+  .feat { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+  .feat-icon { font-size: 22px; margin-bottom: 8px; }
+  .feat h4 { font-size: 13px; font-weight: 700; color: var(--blue); text-transform: none; letter-spacing: 0; margin: 0 0 6px; }
+  .feat p  { font-size: 13px; color: var(--muted); margin: 0; }
+
+  /* ── Print ── */
+  @media print {
+    .toc { display: none; }
+    .wrapper { display: block; }
+    .content { padding: 24px; }
+    .cover { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    h2 .num { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    thead { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .section { page-break-inside: avoid; }
+  }
+  @media(max-width: 860px) {
+    .wrapper { grid-template-columns: 1fr; }
+    .toc { position: static; height: auto; }
+    .content { padding: 28px 24px; }
+    .roles { grid-template-columns: 1fr; }
+    .feat-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrapper">
+
+<!-- ══════════════════════════════════════════════════════
+     SIDEBAR — Table des matières
+══════════════════════════════════════════════════════ -->
+<nav class="toc">
+  <div class="toc-logo">
+    <h1>Faso ISP Manager</h1>
+    <p>Guide Utilisateur</p>
+  </div>
+
+  <div class="toc-section">Introduction</div>
+  <a href="#presentation">Présentation de la plateforme</a>
+  <a href="#roles">Rôles et accès</a>
+  <a href="#connexion">Connexion</a>
+
+  <div class="toc-section">Modules</div>
+  <a href="#monitoring">Tableau de bord réseau</a>
+  <a href="#wifi">Ventes Wi-Fi Zone</a>
+  <a href="#abonnes">Abonnés Wi-Fi Simple</a>
+  <a href="#terrain">Tickets d'intervention</a>
+  <a href="#finance">Rapports &amp; Exports</a>
+  <a href="#admin">Administration</a>
+
+  <div class="toc-section">Technique</div>
+  <a href="#installation">Installation locale</a>
+  <a href="#docker">Déploiement Docker</a>
+  <a href="#planificateur">Tâches automatiques</a>
+  <a href="#variables">Variables d'environnement</a>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════
+     CONTENU PRINCIPAL
+══════════════════════════════════════════════════════ -->
+<main class="content">
+
+  <!-- ── Cover ── -->
+  <div class="cover">
+    <h1>Faso ISP Manager</h1>
+    <p>Plateforme de gestion multi-sites pour opérateurs d'accès Internet — ventes Wi-Fi, monitoring réseau, facturation et interventions terrain.</p>
+    <div class="cover-meta">
+      <div><strong>Version</strong><span>Django 5.1 — Python 3.12+</span></div>
+      <div><strong>Langue</strong><span>Français / Africa/Ouagadougou</span></div>
+      <div><strong>Devise</strong><span>Franc CFA BCEAO (XOF)</span></div>
+      <div><strong>Dernière mise à jour</strong><span>Juin 2026</span></div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════
+       1. PRÉSENTATION
+  ══════════════════════════════════════════════════ -->
+  <div class="section">
+    <span class="section-anchor" id="presentation"></span>
+    <h2><span class="num">1</span> Présentation de la plateforme</h2>
+
+    <p>
+      <strong>Faso ISP Manager</strong> est une application web conçue pour les fournisseurs d'accès Internet (FAI) opérant des hotspots Wi-Fi et des liaisons point-à-point. Elle centralise en un seul endroit la gestion des ventes de tickets Wi-Fi, le suivi des revenus, la surveillance du réseau et la coordination des interventions terrain.
+    </p>
+
+    <div class="feat-grid">
+      <div class="feat">
+        <div class="feat-icon">📡</div>
+        <h4>Monitoring réseau</h4>
+        <p>Carte interactive des sites, statut des liaisons PtP, intégration Zabbix et Uptime Kuma.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">🎫</div>
+        <h4>Ventes Wi-Fi Zone</h4>
+        <p>Génération de vouchers (codes QR), gestion des revendeurs, commissions automatiques, export PDF.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">💰</div>
+        <h4>Finance &amp; Rapports</h4>
+        <p>Journal de caisse, rapports journaliers par revendeur, exports Excel et CSV pour la comptabilité.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">🔧</div>
+        <h4>Interventions terrain</h4>
+        <p>Tickets de panne mobiles (mobile-first), assignation aux techniciens, suivi des statuts.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">🏢</div>
+        <h4>Multi-organisations</h4>
+        <p>Architecture SaaS : plusieurs FAI indépendants sur la même instance, données isolées.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">⚙️</div>
+        <h4>Automatisation</h4>
+        <p>Cron intégré (django-q2) : rapports auto, sync MikroTik, mise à jour santé PtP toutes les 10 min.</p>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════
+       2. RÔLES
+  ══════════════════════════════════════════════════ -->
+  <div class="section">
+    <span class="section-anchor" id="roles"></span>
+    <h2><span class="num">2</span> Rôles et accès</h2>
+
+    <p>Chaque utilisateur appartient à <strong>une organisation (tenant)</strong> et possède l'un des trois rôles suivants :</p>
+
+    <div class="roles">
+      <div class="role-card admin">
+        <h3>Administrateur</h3>
+        <ul>
+          <li>Accès complet à tous les modules</li>
+          <li>Gestion des utilisateurs et revendeurs</li>
+          <li>Vue de tous les rapports et exports</li>
+          <li>Configuration des sites et équipements</li>
+          <li>Export caisse (CSV)</li>
+          <li>Interface Django Admin</li>
+        </ul>
+      </div>
+      <div class="role-card tech">
+        <h3>Technicien</h3>
+        <ul>
+          <li>Tableau de bord monitoring</li>
+          <li>Tickets d'intervention terrain</li>
+          <li>Mise à jour du statut des pannes</li>
+          <li>Accès aux liaisons PtP sur la carte</li>
+        </ul>
+      </div>
+      <div class="role-card rev">
+        <h3>Revendeur</h3>
+        <ul>
+          <li>Dashboard personnel (ventes &amp; commissions)</li>
+          <li>Consultation de ses rapports journaliers</li>
+          <li>Export Excel de ses propres rapports</li>
+          <li>Génération de tickets (via l'admin)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="info-box">
+      <span class="icon">ℹ️</span>
+      <p>Un <strong>opérateur plateforme</strong> (superutilisateur) peut voir les données de toutes les organisations et gérer les tenants depuis <span class="url">/plateforme/organisations/</span>.</p>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════
+       3. CONNEXION
+  ══════════════════════════════════════════════════ -->
+  <div class="section">
+    <span class="section-anchor" id="connexion"></span>
+    <h2><span class="num">3</span> Connexion à la plateforme</h2>
+
+    <p>Accédez à l'application via votre navigateur à l'adresse fournie par votre administrateur (ex. <span class="url">http://votre-serveur:8000</span>).</p>
+
+    <ol class="steps">
+      <li>
+        <div>
+          <strong>Page de connexion</strong>
+          Saisissez votre <em>nom d'utilisateur</em> et votre <em>mot de passe</em> dans le formulaire. Cliquez sur <strong>Se connecter</strong>.
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>Redirection automatique</strong>
+          Selon votre rôle, vous êtes redirigé vers la page d'accueil adaptée :
+          <br>— Admin / Technicien → Tableau de bord monitoring
+          <br>— Revendeur → Espace Revendeur
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>Navigation</strong>
+          La barre latérale gauche affiche les menus accessibles selon votre rôle. En bas de la sidebar, votre nom d'utilisateur et le bouton de déconnexion sont visibles.
+        </div>
+      </li>
+    </ol>
+
+    <div class="warn-box">
+      <span class="icon">⚠️</span>
+      <p>Si vous voyez une page <strong>403 — Accès refusé</strong>, votre rôle ne vous autorise pas à accéder à cette section. Contactez votre administrateur.</p>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════
+       4. MONITORING
+  ══════════════════════════════════════════════════ -->
+  <div class="section">
+    <span class="section-anchor" id="monitoring"></span>
+    <h2><span class="num">4</span> Tableau de bord réseau</h2>
+
+    <p><strong>Accès :</strong> <span class="url">/</span> — Réservé aux rôles Administrateur et Technicien.</p>
+
+    <p>Le tableau de bord donne une vue temps réel de l'infrastructure réseau.</p>
+
+    <h3>4.1 Carte interactive</h3>
+    <p>La carte Leaflet affiche automatiquement tous vos sites et liaisons point-à-point. La couleur indique l'état de santé :</p>
+
+    <table>
+      <thead><tr><th>Couleur</th><th>État</th><th>Signification</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge badge-green">Vert</span></td><td>UP — OK</td><td>Liaison opérationnelle, RSSI ≥ −65 dBm</td></tr>
+        <tr><td><span class="badge badge-amber">Orange</span></td><td>DÉGRADÉ</td><td>Liaison faible, RSSI entre −65 et −75 dBm</td></tr>
+        <tr><td><span class="badge badge-red">Rouge</span></td><td>DOWN</td><td>Liaison hors service ou RSSI &lt; −75 dBm</td></tr>
+        <tr><td><span class="badge badge-gray">Gris</span></td><td>INCONNU</td><td>Données Zabbix non disponibles</td></tr>
+      </tbody>
+    </table>
+
+    <p>Cliquez sur un marqueur de site pour voir son identifiant. Les lignes entre sites représentent les liaisons PtP.</p>
+
+    <h3>4.2 Uptime Kuma</h3>
+    <p>Le bloc <strong>Uptime Kuma</strong> affiche le statut JSON de votre page de supervision (services web, DNS, etc.). Les données sont rafraîchies à chaque chargement de page.</p>
+
+    <h3>4.3 Accès rapide</h3>
+    <p>Des raccourcis permettent d'accéder directement aux Interventions terrain et à l'API Zabbix depuis le tableau de bord.</p>
+
+    <div class="tip-box">
+      <span class="icon">💡</span>
+      <p>La santé des liaisons PtP est mise à jour automatiquement <strong>toutes les 10 minutes</strong> via le planificateur django-q2. L'état visible sur la carte correspond à la dernière synchronisation Zabbix.</p>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════
+       5. VENTES WI-FI ZONE
+  ══════════════════════════════════════════════════ -->
+  <div class="section">
+    <span class="section-anchor" id="wifi"></span>
+    <h2><span class="num">5</span> Ventes Wi-Fi Zone (Tickets vouchers)</h2>
+
+    <p>Le module Wi-Fi Zone gère la vente de tickets d'accès Internet via hotspot MikroTik.</p>
+
+    <h3>5.1 Comprendre les tickets</h3>
+
+    <table>
+      <thead><tr><th>Durée</th><th>Code</th><th>Usage</th></tr></thead>
+      <tbody>
+        <tr><td>3 heures</td><td><span class="url">3h</span></td><td>Connexion courte (café, marché)</td></tr>
+        <tr><td>24 heures</td><td><span class="url">1d</span></td><td>Journée complète</td></tr>
+        <tr><td>7 jours</td><td><span class="url">1w</span></td><td>Semaine</td></tr>
+        <tr><td>30 jours</td><td><span class="url">30j</span></td><td>Abonnement mensuel</td></tr>
+      </tbody>
+    </table>
+
+    <p>Chaque ticket a un code unique (ex. <span class="url">KONE-A4F2B</span>). Le préfixe identifie le revendeur. Un QR code est généré pour chaque ticket.</p>
+
+    <h3>5.2 Générer un lot de tickets (Admin)</h3>
+
+    <ol class="steps">
+      <li><div><strong>Ouvrir l'Admin Django</strong> → <span class="url">/admin/wifi_zone/wifiticketbatch/add/</span></div></li>
+      <li><div><strong>Remplir le formulaire</strong> : Libellé du lot, Site concerné, Durée, Prix unitaire (XOF), Quantité (max 500).</div></li>
+      <li><div><strong>Enregistrer.</strong> Les tickets sont générés automatiquement avec des codes uniques.</div></li>
+      <li><div><strong>Assigner un revendeur.</strong> Dans la liste des tickets générés, définissez <em>Revendeur / vendeur</em> pour chaque ticket (ou par lot via l'action groupée).</div></li>
+      <li><div><strong>Exporter en PDF.</strong> Sélectionnez les tickets → Action <em>Exporter les tickets sélectionnés en PDF</em>. Imprimez et distribuez.</div></li>
+    </ol>
+
+    <div class="info-box">
+      <span class="icon">ℹ️</span>
+      <p>Après création, les tickets sont automatiquement <strong>provisionnés sur le routeur MikroTik</strong> du site correspondant via SSH (si la configuration hotspot est renseignée).</p>
+    </div>
+
+    <h3>5.3 Export PDF des tickets</h3>
+
+    <p>Deux méthodes d'export PDF sont disponibles :</p>
+
+    <table>
+      <thead><tr><th>Méthode</th><th>URL</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>Par lot</td><td><span class="url">/wifi/tickets/lot/&lt;id&gt;/pdf/</span></td><td>Tous les tickets d'un lot</td></tr>
+        <tr><td>Sélection</td><td><span class="url">/wifi/tickets/pdf/</span></td><td>Tickets cochés dans l'admin</td></tr>
+      </tbody>
+    </table>
+
+    <p>Le PDF généré contient le code du ticket, le QR code scannable, la durée et le prix. Format optimisé pour l'impression A4 (plusieurs tickets par page).</p>
+
+    <h3>5.4 Commissions revendeurs</h3>
+
+    <p>Les commissions sont calculées automatiquement à la création de chaque ticket :</p>
+
+    <div class="screen">
+      <span class="hl-white">Commission = Prix × Taux revendeur ÷ 100</span><br>
+      <span class="hl-dim">Exemple :</span> <span class="hl-cyan">500 XOF</span> × <span class="hl-amber">10%</span> = <span class="hl-amber">50 XOF</span> commission<br>
+      <span class="hl-green">Net FAI = 500 − 50 = 450 XOF</span>
+    </div>
+
+    <p>Le taux de commission est défini par revendeur dans son profil utilisateur (champ <em>Commission par défaut</em>). Il peut être surchargé par ticket.</p>
+
+    <h3>5.5 Dashboard Revendeur</h3>
+
+    <p><strong>Accès :</strong> <span class="url">/wifi/revendeur/</span></p>
+
+    <p>Chaque revendeur dispose d'un tableau de bord personnel montrant :</p>
+    <ul style="padding-left:22px;margin-bottom:14px;line-height:2;">
+      <li>Nombre total de tickets vendus</li>
+      <li>Son taux de commission</li>
+      <li>Montant total à reverser au FAI (net)</li>
+      <li>Les 25 dernières ventes avec code, durée, site et statut</li>
+    </ul>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════
+       6. ABONNÉS WI-FI SIMPLE
+  ══════════════════════════════════════════════════ -->
+  <div class="section">
+    <span class="section-anchor" id="abonnes"></span>
+    <h2><span class="num">6</span> Abonnés Wi-Fi Simple</h2>
+
+    <p>Le Wi-Fi Simple gère des abonnements mensuels avec contrôle par adresse MAC (pas de voucher, accès permanent plafonné à la date d'expiration).</p>
+
+    <h3>6.1 Créer un abonné (Admin)</h3>
+
+    <ol class="steps">
+      <li><div><strong>Admin Django</strong> → <span class="url">/admin/wifi_zone/wifisimplesubscriber/add/</span></div></li>
+      <li><div><strong>Remplir</strong> : Nom complet, Téléphone, Adresse MAC du CPE (format <span class="url">AA:BB:CC:DD:EE:FF</span>), Date d'expiration, Site, Équipement cible.</div></li>
+      <li><div><strong>Enregistrer.</strong> La MAC est automatiquement autorisée sur le bridge MikroTik ou Ubiquiti via SSH.</div></li>
+    </ol>
+
+    <h3>6.2 Bloquer / Débloquer un abonné</h3>
+
+    <p>Lorsque le paiement n'est pas à jour, passez le champ <strong>Abonnement payé à jour</strong> à <em>Non</em>. La MAC est automatiquement bloquée sur le routeur. Le déblocage s'effectue en repassant à <em>Oui</em>.</p>
+
+    <table>
+      <thead><tr><th>Champ</th><th>Valeur</th><th>Effet réseau</th></tr></thead>
+      <tbody>
+        <tr><td>Abonnement payé à jour</td><td>Oui</td><td>MAC autorisée — accès ouvert</td></tr>
+        <tr><td>Abonnement payé à jour</td><td>Non</td><td>MAC bloquée via bridge filter SSH</td></tr>
+      </tbody>
+    </table>
+
+    <div class="warn-box">
+      <span class="icon">⚠️</span>
+      <p>La commande SSH vers le routeur est exécutée en temps réel lors de la sauvegarde. Vérifiez que l'équipement cible est accessible depuis le serveur. Consultez le champ <em>MAC bloquée sur le réseau</em> pour confirmer l'état réel.</p>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════
+       7. TICKETS D'INTERVENTION
+  ══════════════════════════════════════════════════ -->
+  <div class="section">
+    <span class="section-anchor" id="terrain"></span>
+    <h2><span class="num">7</span> Tickets d'intervention terrain</h2>
+
+    <p><strong>Accès :</strong> <span class="url">/terrain/interventions/</span> — Rôles Technicien et Administrateur.</p>
+
+    <p>Interface mobile-first pour la gestion des pannes réseau sur le terrain.</p>
+
+    <h3>7.1 Cycle de vie d'un ticket</h3>
+
+    <div class="screen">
+      <span class="hl-cyan">OUVERT</span> <span class="hl-dim">→</span> <span class="hl-amber">ASSIGNÉ</span> <span class="hl-dim">→</span> <span class="hl-amber">EN COURS</span> <span class="hl-dim">→</span> <span class="hl-green">RÉSOLU</span> <span class="hl-dim">→</span> <span class="hl-dim">FERMÉ</span>
+    </div>
+
+    <table>
+      <thead><tr><th>Statut</th><th>Signification</th><th>Action suivante</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge badge-blue">OUVERT</span></td><td>Panne signalée, non assignée</td><td>Assigner un technicien</td></tr>
+        <tr><td><span class="badge badge-amber">ASSIGNÉ</span></td><td>Technicien désigné</td><td>Démarrer l'intervention</td></tr>
+        <tr><td><span class="badge badge-amber">EN COURS</span></td><td>Intervention en cours</td><td>Marquer résolu</td></tr>
+        <tr><td><span class="badge badge-green">RÉSOLU</span></td><td>Problème réglé</td><td>Clôturer</td></tr>
+        <tr><td><span class="badge badge-gray">FERMÉ</span></td><td>Ticket archivé</td><td>—</td></tr>
+      </tbody>
+    </table>
+
+    <h3>7.2 Créer un ticket de panne (Admin)</h3>
+
+    <ol class="steps">
+      <li><div><strong>Admin Django</strong> → <span class="url">/admin/finance/maintenanceticket/add/</span></div></li>
+      <li><div><strong>Remplir</strong> : Titre, Description, Site concerné, Liaison PtP défectueuse (optionnel), Priorité (Basse / Moyenne / Haute), Technicien assigné.</div></li>
+      <li><div><strong>Enregistrer.</strong> Une référence unique (<span class="url">PANNE-XXXX</span>) est générée automatiquement.</div></li>
+    </ol>
+
+    <h3>7.3 Mettre à jour un ticket (Technicien)</h3>
+
+    <ol class="steps">
+      <li><div>Depuis le terrain, ouvrez <span class="url">/terrain/interventions/</span> sur votre téléphone.</div></li>
+      <li><div>Cliquez sur le ticket assigné à votre nom.</div></li>
+      <li><div>Changez le statut via le menu déroulant et cliquez <strong>Enregistrer</strong>.</div></li>
+      <li><div>Quand le problème est résolu, passez le statut à <span class="badge badge-green">RÉSOLU</span>. La date de clôture est enregistrée automatiquement.</div></li>
+    </ol>
+
+    <div class="tip-box">
+      <span class="icon">💡</span>
+      <p>Un technicien ne voit que les tickets qui lui sont assignés ou non assignés. L'administrateur voit tous les tickets de l'organisation.</p>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════
+       8. RAPPORTS ET EXPORTS
+  ══════════════════════════════════════════════════ -->
+  <div class="section">
+    <span class="section-anchor" id="finance"></span>
+    <h2><span class="num">8</span> Rapports et exports financiers</h2>
+
+    <h3>8.1 Rapports journaliers revendeurs</h3>
+
+    <p><strong>Accès :</strong> <span class="url">/rapports/revendeurs/</span> — Admin voit tous les revendeurs, Revendeur voit uniquement les siens.</p>
+
+    <p>Un rapport est généré <strong>automatiquement chaque nuit à 01h00</strong> pour chaque revendeur actif. Il récapitule :</p>
+    <ul style="padding-left:22px;margin-bottom:14px;line-height:2;">
+      <li>Nombre de tickets vendus et utilisés dans la journée</li>
+      <li>Montant brut encaissé (XOF)</li>
+      <li>Commission du revendeur (XOF)</li>
+      <li>Net à reverser au FAI (XOF)</li>
+      <li>Détail ticket par ticket (code, durée, site, prix, statut hotspot)</li>
+    </ul>
+
+    <h4>Exporter en Excel</h4>
+    <p>Depuis la liste des rapports, choisissez une plage de dates et cliquez sur le bouton <strong>Excel</strong>. Le fichier téléchargé contient :</p>
+
+    <table>
+      <thead><tr><th>Onglet</th><th>Contenu</th></tr></thead>
+      <tbody>
+        <tr><td>Export liste</td><td>Une ligne par rapport avec totaux en bas (bleu)</td></tr>
+        <tr><td>Résumé (détail)</td><td>Fiche financière du rapport (revendeur, dates, montants)</td></tr>
+        <tr><td>Tickets (détail)</td><td>Détail complet de chaque ticket vendu ce jour</td></tr>
+      </tbody>
+    </table>
+
+    <div class="tip-box">
+      <span class="icon">💡</span>
+      <p>Pour régénérer manuellement un rapport manqué : <code>python manage.py generate_daily_revendeur_reports --date 2026-06-15</code></p>
+    </div>
+
+    <h3>8.2 Export journal de caisse (CSV)</h3>
+
+    <p><strong>Accès :</strong> Lien <em>Export Caisse (CSV)</em> dans la barre latérale — Administrateurs uniquement.</p>
+
+    <p>Exporte toutes les écritures du journal de caisse (entrées et dépenses). Paramètres optionnels via l'URL :</p>
+
+    <div class="screen">
+      <span class="hl-dim"># Export de toute la période</span><br>
+      <span class="url" style="background:transparent;color:var(--cyan);">/rapports/caisse/export/csv/</span><br><br>
+      <span class="hl-dim"># Export avec filtre de dates</span><br>
+      <span class="url" style="background:transparent;color:var(--cyan);">/rapports/caisse/export/csv/?date_from=2026-06-01&amp;date_to=2026-06-30</span>
+    </div>
+
+    <p>Le fichier CSV s'ouvre directement dans Excel (séparateur <code>;</code>, encodage UTF-8 avec BOM). Colonnes : Date, Type, Catégorie, Description, Montant XOF, Site, Créé par, Date saisie.</p>
+
+    <h3>8.3 Journal de caisse (saisie)</h3>
+
+    <p><strong>Accès :</strong> <span class="url">/admin/finance/cashjournalentry/add/</span></p>
+
+    <p>Saisissez chaque mouvement de caisse :</p>
+
+    <table>
+      <thead><tr><th>Champ</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>Type</td><td>Entrée (recette) ou Dépense</td></tr>
+        <tr><td>Montant (XOF)</td><td>Montant en Franc CFA</td></tr>
+        <tr><td>Description</td><td>Libellé de l'opération</td></tr>
+        <tr><td>Catégorie</td><td>Ex. carburant, maintenance, vente ticket…</td></tr>
+        <tr><td>Date comptable</td><td>Date de l'opération (pas nécessairement aujourd'hui)</td></tr>
+        <tr><td>Site lié</td><td>Optionnel — rattache l'écriture à un site</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════
+       9. ADMINISTRATION
+  ══════════════════════════════════════════════════ -->
+  <div class="section">
+    <span class="section-anchor" id="admin"></span>
+    <h2><span class="num">9</span> Administration</h2>
+
+    <h3>9.1 Gestion des utilisateurs</h3>
+
+    <p><strong>Accès :</strong> <span class="url">/admin/accounts/user/</span></p>
+
+    <p>Champs importants à renseigner lors de la création d'un utilisateur :</p>
+
+    <table>
+      <thead><tr><th>Champ</th><th>Description</th><th>Obligatoire</th></tr></thead>
+      <tbody>
+        <tr><td>Nom d'utilisateur</td><td>Identifiant de connexion</td><td>Oui</td></tr>
+        <tr><td>Rôle</td><td>ADMIN / TECHNICIAN / REVENDEUR</td><td>Oui</td></tr>
+        <tr><td>Organisation (Tenant)</td><td>FAI auquel l'utilisateur appartient</td><td>Oui</td></tr>
+        <tr><td>Préfixe ticket</td><td>Ex. KONE — pour les revendeurs uniquement (2-10 majuscules)</td><td>Revendeur</td></tr>
+        <tr><td>Commission par défaut (%)</td><td>Taux de commission du revendeur</td><td>Revendeur</td></tr>
+        <tr><td>Téléphone</td><td>Contact du technicien / revendeur</td><td>Non</td></tr>
+      </tbody>
+    </table>
+
+    <div class="warn-box">
+      <span class="icon">⚠️</span>
+      <p>Le <strong>préfixe ticket</strong> d'un revendeur doit être unique dans toute la plateforme. Il est utilisé pour identifier ses tickets dans les rapports.</p>
+    </div>
+
+    <h3>9.2 Gestion des sites réseau</h3>
+
+    <p><strong>Accès :</strong> <span class="url">/admin/core/site/</span></p>
+
+    <table>
+      <thead><tr><th>Champ</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>Identifiant site</td><td>Code court unique (ex. OUA-NORD), apparaît sur la carte</td></tr>
+        <tr><td>Coordonnées GPS</td><td>Latitude / longitude pour le marqueur sur la carte</td></tr>
+        <tr><td>Est opérationnel</td><td>Détermine la couleur du marqueur (vert / gris)</td></tr>
+        <tr><td>Routeur hotspot MikroTik</td><td>Équipement utilisé pour les commandes SSH hotspot</td></tr>
+        <tr><td>Profils hotspot</td><td>Noms des profils RouterOS par durée (3h, 1j, 1 sem, 30j)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>9.3 Gestion des équipements réseau</h3>
+
+    <p><strong>Accès :</strong> <span class="url">/admin/core/networkdevice/</span></p>
+
+    <p>Chaque équipement (MikroTik, Ubiquiti) doit être enregistré avec ses accès SSH pour que le blocage MAC et le provisionnement hotspot fonctionnent.</p>
+
+    <table>
+      <thead><tr><th>Champ</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>Vendeur</td><td>MIKROTIK / UBIQUITI / AUTRE</td></tr>
+        <tr><td>Hôte de gestion</td><td>IP ou hostname de l'équipement</td></tr>
+        <tr><td>Port SSH</td><td>Défaut : 22</td></tr>
+        <tr><td>Nom d'utilisateur SSH</td><td>Compte de connexion (ex. admin)</td></tr>
+        <tr><td>Bridge (MikroTik)</td><td>Nom du bridge pour les filtres MAC (ex. bridge)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>9.4 Liaisons PtP</h3>
+
+    <p><strong>Accès :</strong> <span class="url">/admin/core/ptplink/</span></p>
+
+    <p>Configurez les liaisons point-à-point Ubiquiti AirMAX pour les voir sur la carte et bénéficier de la synchronisation automatique Zabbix.</p>
+
+    <table>
+      <thead><tr><th>Champ</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>Site extrémité A / B</td><td>Sites connectés par cette liaison</td></tr>
+        <tr><td>Host Zabbix A / B</td><td>Nom d'hôte dans Zabbix pour chaque extrémité</td></tr>
+        <tr><td>IP SNMP</td><td>IP pour sonde directe pysnmp (optionnel)</td></tr>
+        <tr><td>Santé en cache</td><td>Mise à jour automatiquement toutes les 10 min</td></tr>
+      </tbody>
+    </table>
+
+    <h3>9.5 Gestion des organisations (multi-tenant)</h3>
+
+    <p><strong>Accès :</strong> <span class="url">/plateforme/organisations/</span> — Opérateur plateforme uniquement.</p>
+
+    <p>Interface dédiée à la gestion des tenants (FAI clients) : création, modification, suppression. Chaque organisation a ses données totalement isolées.</p>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════
+       10. INSTALLATION LOCALE
+  ══════════════════════════════════════════════════ -->
+  <div class="section">
+    <span class="section-anchor" id="installation"></span>
+    <h2><span class="num">10</span> Installation locale (développement)</h2>
+
+    <ol class="steps">
+      <li>
+        <div>
+          <strong>Prérequis</strong>
+          Python 3.12+, pip. Optionnel : Git.
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>Cloner le projet</strong>
+          <div class="screen">git clone &lt;repo-url&gt; faso_isp<br>cd faso_isp</div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>Créer l'environnement virtuel et installer les dépendances</strong>
+          <div class="screen">python -m venv .venv<br>.venv\Scripts\activate  <span class="hl-dim"># Windows</span><br>pip install -r requirements.txt</div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>Configurer les variables d'environnement</strong>
+          Copiez <span class="url">.env.example</span> en <span class="url">.env</span> et adaptez les valeurs.
+          Pour le développement local, activez SQLite : <code>USE_SQLITE=1</code>
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>Lancer les migrations et créer l'admin</strong>
+          <div class="screen">python manage.py migrate<br>python manage.py createsuperuser</div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>Démarrer le serveur</strong>
+          <div class="screen">python manage.py runserver<br><span class="hl-dim"># Ou double-cliquez sur run_local.ps1</span></div>
+          Accédez à <span class="url">http://127.0.0.1:8000</span>
+        </div>
+      </li>
+    </ol>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════
+       11. DÉPLOIEMENT DOCKER
+  ══════════════════════════════════════════════════ -->
+  <div class="section">
+    <span class="section-anchor" id="docker"></span>
+    <h2><span class="num">11</span> Déploiement Docker (production)</h2>
+
+    <p>Le fichier <span class="url">docker-compose.yml</span> démarre l'ensemble de la stack en une commande.</p>
+
+    <h3>11.1 Services inclus</h3>
+
+    <table>
+      <thead><tr><th>Service</th><th>Rôle</th><th>Port</th></tr></thead>
+      <tbody>
+        <tr><td><strong>web</strong></td><td>Application Django (Gunicorn)</td><td>8000</td></tr>
+        <tr><td><strong>qcluster</strong></td><td>Worker tâches planifiées (django-q2)</td><td>—</td></tr>
+        <tr><td><strong>db</strong></td><td>Base de données PostgreSQL 16</td><td>5432</td></tr>
+        <tr><td><strong>zabbix-server</strong></td><td>Serveur de supervision Zabbix 6.4</td><td>10051</td></tr>
+        <tr><td><strong>zabbix-web</strong></td><td>Interface web Zabbix</td><td>8080</td></tr>
+        <tr><td><strong>uptime-kuma</strong></td><td>Monitoring services web</td><td>3001</td></tr>
+      </tbody>
+    </table>
+
+    <h3>11.2 Démarrer la stack</h3>
+
+    <div class="screen">
+      <span class="hl-dim"># Copier et remplir le fichier d'environnement</span><br>
+      cp .env.example .env<br><br>
+      <span class="hl-dim"># Démarrer tous les services</span><br>
+      docker compose up -d<br><br>
+      <span class="hl-dim"># Voir les logs</span><br>
+      docker compose logs -f web<br>
+      docker compose logs -f qcluster<br><br>
+      <span class="hl-dim"># Arrêter</span><br>
+      docker compose down
+    </div>
+
+    <p>Au premier démarrage, les migrations sont appliquées automatiquement et les tâches planifiées sont enregistrées. Aucune action manuelle n'est nécessaire.</p>
+
+    <h3>11.3 Créer le premier administrateur</h3>
+
+    <p>Deux méthodes :</p>
+
+    <div class="screen">
+      <span class="hl-dim"># Méthode 1 : Variable d'environnement (automatique au démarrage)</span><br>
+      DJANGO_BOOTSTRAP_ADMIN_PASSWORD=motdepasse_fort<br>
+      DJANGO_BOOTSTRAP_ADMIN_EMAIL=admin@votrefai.com<br><br>
+      <span class="hl-dim"># Méthode 2 : Commande manuelle</span><br>
+      docker compose exec web python manage.py createsuperuser
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════
+       12. TÂCHES AUTOMATIQUES
+  ══════════════════════════════════════════════════ -->
+  <div class="section">
+    <span class="section-anchor" id="planificateur"></span>
+    <h2><span class="num">12</span> Tâches automatiques (planificateur)</h2>
+
+    <p>Le service <strong>qcluster</strong> exécute trois tâches récurrentes :</p>
+
+    <table>
+      <thead><tr><th>Tâche</th><th>Fréquence</th><th>Commande manuelle</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Rapports revendeurs quotidiens</td>
+          <td>Chaque nuit à 01h00</td>
+          <td><code>python manage.py generate_daily_revendeur_reports</code></td>
+        </tr>
+        <tr>
+          <td>Synchronisation santé PtP (Zabbix)</td>
+          <td>Toutes les 10 minutes</td>
+          <td><code>python manage.py sync_ptp_health --dry-run</code></td>
+        </tr>
+        <tr>
+          <td>Synchronisation hotspot MikroTik</td>
+          <td>Toutes les 30 minutes</td>
+          <td><code>python manage.py sync_mikrotik_hotspot</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Surveiller les tâches</h3>
+    <p>Depuis l'interface Admin Django : <span class="url">/admin/django_q/</span></p>
+    <p>Vous pouvez y voir l'historique d'exécution, les erreurs et modifier les plannings.</p>
+
+    <h3>Options utiles des commandes</h3>
+
+    <div class="screen">
+      <span class="hl-dim"># Rapport pour une date spécifique</span><br>
+      python manage.py generate_daily_revendeur_reports --date 2026-06-15<br><br>
+      <span class="hl-dim"># Limiter à un revendeur (organisation)</span><br>
+      python manage.py generate_daily_revendeur_reports --tenant mon-fai<br><br>
+      <span class="hl-dim"># Tester la sync PtP sans modifier la base</span><br>
+      python manage.py sync_ptp_health --dry-run<br><br>
+      <span class="hl-dim"># Voir les tâches planifiées</span><br>
+      python manage.py setup_schedules --list
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════
+       13. VARIABLES D'ENVIRONNEMENT
+  ══════════════════════════════════════════════════ -->
+  <div class="section">
+    <span class="section-anchor" id="variables"></span>
+    <h2><span class="num">13</span> Variables d'environnement</h2>
+
+    <p>Toutes les variables sont à définir dans le fichier <span class="url">.env</span> à la racine du projet.</p>
+
+    <h3>Application Django</h3>
+    <table>
+      <thead><tr><th>Variable</th><th>Description</th><th>Défaut</th></tr></thead>
+      <tbody>
+        <tr><td><code>DJANGO_SECRET_KEY</code></td><td>Clé secrète Django — <strong>obligatoire en prod</strong></td><td>dev-only-key</td></tr>
+        <tr><td><code>DJANGO_DEBUG</code></td><td>Mode debug (0 = prod, 1 = dev)</td><td>1</td></tr>
+        <tr><td><code>DJANGO_ALLOWED_HOSTS</code></td><td>Hôtes autorisés (virgule-séparés)</td><td>localhost,127.0.0.1</td></tr>
+        <tr><td><code>USE_SQLITE</code></td><td>1 = SQLite (dev), 0 = PostgreSQL (prod)</td><td>0</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Base de données PostgreSQL</h3>
+    <table>
+      <thead><tr><th>Variable</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>POSTGRES_DB</code></td><td>Nom de la base de données</td></tr>
+        <tr><td><code>POSTGRES_USER</code></td><td>Utilisateur PostgreSQL</td></tr>
+        <tr><td><code>POSTGRES_PASSWORD</code></td><td>Mot de passe PostgreSQL</td></tr>
+        <tr><td><code>POSTGRES_HOST</code></td><td>Hôte PostgreSQL (ex. db en Docker)</td></tr>
+        <tr><td><code>POSTGRES_PORT</code></td><td>Port (défaut : 5432)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Monitoring</h3>
+    <table>
+      <thead><tr><th>Variable</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>ZABBIX_API_URL</code></td><td>URL de l'API Zabbix (ex. http://zabbix-web:8080/api_jsonrpc.php)</td></tr>
+        <tr><td><code>ZABBIX_API_USER</code></td><td>Identifiant Zabbix</td></tr>
+        <tr><td><code>ZABBIX_API_PASSWORD</code></td><td>Mot de passe Zabbix</td></tr>
+        <tr><td><code>UPTIME_KUMA_URL</code></td><td>URL Uptime Kuma (ex. http://uptime-kuma:3001)</td></tr>
+        <tr><td><code>SNMP_COMMUNITY</code></td><td>Communauté SNMP (ex. public)</td></tr>
+        <tr><td><code>ZABBIX_PTP_RSSI_UP_THRESHOLD</code></td><td>Seuil RSSI UP en dBm absolu (défaut : 65)</td></tr>
+        <tr><td><code>ZABBIX_PTP_RSSI_DEGRADED_THRESHOLD</code></td><td>Seuil RSSI DÉGRADÉ en dBm absolu (défaut : 75)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>MikroTik / Routeurs</h3>
+    <table>
+      <thead><tr><th>Variable</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>MIKROTIK_DEFAULT_SSH_USER</code></td><td>Compte SSH MikroTik (défaut : admin)</td></tr>
+        <tr><td><code>MIKROTIK_SSH_TIMEOUT</code></td><td>Timeout SSH en secondes (défaut : 25)</td></tr>
+        <tr><td><code>MIKROTIK_DEFAULT_BRIDGE_NAME</code></td><td>Nom du bridge (défaut : bridge)</td></tr>
+        <tr><td><code>ROUTER_CONTROL_DRY_RUN</code></td><td>1 = simuler les commandes SSH sans les exécuter</td></tr>
+        <tr><td><code>MIKROTIK_HOTSPOT_SERVER</code></td><td>Nom du serveur hotspot RouterOS (défaut : hotspot1)</td></tr>
+      </tbody>
+    </table>
+
+    <div class="warn-box">
+      <span class="icon">⚠️</span>
+      <p>Ne commitez jamais le fichier <span class="url">.env</span> dans Git. Il contient des identifiants sensibles. Vérifiez que <span class="url">.env</span> est bien dans votre <span class="url">.gitignore</span>.</p>
+    </div>
+  </div>
+
+
+  <!-- ── Footer ── -->
+  <div style="margin-top:64px;padding-top:24px;border-top:1px solid var(--border);color:var(--muted);font-size:13px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+    <span>Faso ISP Manager — Guide Utilisateur v1.0</span>
+    <span>Juin 2026</span>
+  </div>
+
+</main>
+</div>
+
+</body>
+</html>
