@@ -4,6 +4,60 @@ from django.db import models
 from apps.core.models import NetworkDevice
 
 
+class RouterAuditLog(models.Model):
+    """Trace immuable de toutes les commandes envoyées aux routeurs, par tenant."""
+
+    class Action(models.TextChoices):
+        MAC_BLOCK = "mac_block", "Blocage MAC"
+        MAC_UNBLOCK = "mac_unblock", "Déblocage MAC"
+        HOTSPOT_PROVISION = "hotspot_provision", "Provisionnement hotspot"
+        HOTSPOT_REMOVE = "hotspot_remove", "Suppression hotspot"
+        FREQ_CHANGE = "freq_change", "Changement fréquence"
+        PPPOE_CHECK = "pppoe_check", "Vérification PPPoE"
+        OTHER = "other", "Autre"
+
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
+        on_delete=models.CASCADE,
+        related_name="router_audit_logs",
+        verbose_name="Organisation",
+        null=True,
+        blank=True,
+    )
+    device = models.ForeignKey(
+        NetworkDevice,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="audit_logs",
+        verbose_name="Équipement",
+    )
+    performed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="router_audit_logs",
+        verbose_name="Exécuté par",
+    )
+    action = models.CharField(max_length=32, choices=Action.choices, db_index=True)
+    target = models.CharField("Cible (MAC, code ticket, …)", max_length=255, blank=True)
+    command_sent = models.TextField("Commande envoyée", blank=True)
+    success = models.BooleanField("Succès", default=True, db_index=True)
+    error_message = models.TextField("Message d'erreur", blank=True)
+    dry_run = models.BooleanField("Mode test", default=False)
+    ip_address = models.GenericIPAddressField("IP client", null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "audit routeur"
+        verbose_name_plural = "audits routeur"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.get_action_display()} — {self.device} ({self.created_at:%d/%m/%Y %H:%M})"
+
+
 class DeviceConfigChange(models.Model):
     """Journal des modifications de configuration appliquées à distance sur un équipement."""
 

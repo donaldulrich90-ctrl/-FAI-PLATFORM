@@ -27,8 +27,16 @@ ALLOWED_HOSTS = [
 _csrf_raw = os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "")
 CSRF_TRUSTED_ORIGINS = [x.strip() for x in _csrf_raw.split(",") if x.strip()]
 
-if _env_bool("DJANGO_BEHIND_TLS_PROXY", "0"):
+_behind_tls = _env_bool("DJANGO_BEHIND_TLS_PROXY", "0")
+if _behind_tls:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -37,6 +45,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "axes",
     "apps.tenants",
     "apps.accounts",
     "apps.core",
@@ -53,9 +62,15 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "axes.middleware.AxesMiddleware",
     "apps.tenants.middleware.TenantMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+]
+
+AUTHENTICATION_BACKENDS = [
+    "axes.backends.AxesStandaloneBackend",
+    "django.contrib.auth.backends.ModelBackend",
 ]
 
 ROOT_URLCONF = "faso_isp_manager.urls"
@@ -143,13 +158,12 @@ UBNT_SNMP_NOISE_OID = os.environ.get(
     "1.3.6.1.4.1.41112.1.4.5.1.5.1.3.1",
 )
 
-# MikroTik RouterOS (blocage MAC abonnés Wi‑Fi Simple — SSH)
+# MikroTik RouterOS
 MIKROTIK_DEFAULT_BRIDGE_NAME = os.environ.get("MIKROTIK_DEFAULT_BRIDGE_NAME", "bridge")
 MIKROTIK_DEFAULT_USERNAME = os.environ.get("MIKROTIK_DEFAULT_SSH_USER", "admin")
 MIKROTIK_SSH_TIMEOUT = int(os.environ.get("MIKROTIK_SSH_TIMEOUT", "25"))
 MIKROTIK_FALLBACK_SSH_PASSWORD_ENV = os.environ.get("MIKROTIK_FALLBACK_SSH_PASSWORD_ENV", "")
 ROUTER_CONTROL_DRY_RUN = _env_bool("ROUTER_CONTROL_DRY_RUN", "0")
-# Profil unique si le site n’a pas de « Profil Hotspot » renseigné : un profil par durée (aligné RouterOS typique).
 MIKROTIK_HOTSPOT_DEFAULT_PROFILE = os.environ.get("MIKROTIK_HOTSPOT_DEFAULT_PROFILE", "")
 MIKROTIK_HOTSPOT_PROFILE_3H = os.environ.get("MIKROTIK_HOTSPOT_PROFILE_3H", "Profil-2H")
 MIKROTIK_HOTSPOT_PROFILE_1D = os.environ.get("MIKROTIK_HOTSPOT_PROFILE_1D", "Profil-24H")
@@ -157,8 +171,10 @@ MIKROTIK_HOTSPOT_PROFILE_1W = os.environ.get("MIKROTIK_HOTSPOT_PROFILE_1W", "7j"
 MIKROTIK_HOTSPOT_PROFILE_30J = os.environ.get(
     "MIKROTIK_HOTSPOT_PROFILE_30J", "Profil-30Jours"
 )
-# Nom du serveur hotspot RouterOS (/ip hotspot print) — ex. hotspot1. Vide = non passé à la commande add.
 MIKROTIK_HOTSPOT_SERVER = os.environ.get("MIKROTIK_HOTSPOT_SERVER", "hotspot1")
+
+# Clé de chiffrement Fernet pour les credentials équipements (séparée de SECRET_KEY)
+ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY", "")
 
 LOGIN_REDIRECT_URL = "accounts:home"
 LOGIN_URL = "accounts:login"
@@ -179,3 +195,17 @@ Q_CLUSTER = {
 # Seuils RSSI Ubiquiti pour la santé PtP (valeur absolue dBm)
 ZABBIX_PTP_RSSI_UP_THRESHOLD = int(os.environ.get("ZABBIX_PTP_RSSI_UP_THRESHOLD", "65"))
 ZABBIX_PTP_RSSI_DEGRADED_THRESHOLD = int(os.environ.get("ZABBIX_PTP_RSSI_DEGRADED_THRESHOLD", "75"))
+
+# ── django-axes : protection brute-force login ──
+AXES_FAILURE_LIMIT = int(os.environ.get("AXES_FAILURE_LIMIT", "5"))
+AXES_COOLOFF_TIME = 1  # heures avant déblocage automatique
+AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
+AXES_RESET_ON_SUCCESS = True
+AXES_ENABLE_ADMIN = True
+
+# SaaS billing CinetPay
+CINETPAY_API_KEY = os.environ.get("CINETPAY_API_KEY", "")
+CINETPAY_SITE_ID = os.environ.get("CINETPAY_SITE_ID", "")
+CINETPAY_NOTIFY_URL = os.environ.get("CINETPAY_NOTIFY_URL", "")
+CINETPAY_RETURN_URL = os.environ.get("CINETPAY_RETURN_URL", "")
+CINETPAY_MODE = os.environ.get("CINETPAY_MODE", "TEST")  # TEST ou PRODUCTION

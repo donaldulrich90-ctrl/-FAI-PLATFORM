@@ -16,3 +16,11 @@ reportlab>=4.0,<5.0
 django-q2>=1.7,<2.0
 openpyxl>=3.1,<4.0
 croniter>=2.0
+# Sécurité
+django-axes>=6.4,<7.0
+cryptography>=42.0,<44.0
+# RouterOS API
+librouteros>=3.2,<4.0
+# Tests
+pytest>=8.0,<9.0
+pytest-django>=4.8,<5.0
