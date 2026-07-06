@@ -24,6 +24,7 @@ def _make_device(
     ssh_port: int = 22,
     username: str = "admin",
     password_hint: str = "env:MIKROTIK_TEST_PASS",
+    encrypted_password: str = "",
     vendor: str = "mikrotik",
     is_active: bool = True,
     mikrotik_bridge_name: str = "",
@@ -35,6 +36,7 @@ def _make_device(
     dev.ssh_port = ssh_port
     dev.username = username
     dev.password_hint = password_hint
+    dev.encrypted_password = encrypted_password
     dev.vendor = vendor
     dev.is_active = is_active
     dev.mikrotik_bridge_name = mikrotik_bridge_name

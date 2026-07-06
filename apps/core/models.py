@@ -111,14 +111,26 @@ class NetworkDevice(models.Model):
     name = models.CharField(max_length=128)
     vendor = models.CharField(max_length=20, choices=Vendor.choices, default=Vendor.OTHER)
     management_host = models.CharField("IP / hostname", max_length=255)
-    api_port = models.PositiveIntegerField(default=443)
+    api_port = models.PositiveIntegerField(
+        default=8728,
+        help_text="Port API RouterOS (8728 plain, 8729 SSL). Laisser 8728 par défaut.",
+    )
     ssh_port = models.PositiveIntegerField(default=22)
     username = models.CharField(max_length=128, blank=True)
     password_hint = models.CharField(
-        "Réf. secret (Vault)",
+        "Réf. secret (env var)",
         max_length=128,
         blank=True,
-        help_text="Ne pas stocker le mot de passe en clair en prod. Ex. env:MIKROTIK_PASS_SITE12",
+        help_text=(
+            "Référence à une variable d’environnement : ex. env:MIKROTIK_PASS_SITE12. "
+            "Laisser vide si le mot de passe est défini via le champ ‘Définir le mot de passe’ ci-dessous."
+        ),
+    )
+    encrypted_password = models.TextField(
+        "Mot de passe chiffré",
+        blank=True,
+        editable=False,
+        help_text="Token Fernet (géré automatiquement — ne pas modifier manuellement).",
     )
     mikrotik_bridge_name = models.CharField(
         "Bridge MikroTik (filtre MAC)",
@@ -135,6 +147,14 @@ class NetworkDevice(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name} @ {self.site}"
+
+    def set_password(self, plaintext: str) -> None:
+        """Chiffre le mot de passe et le stocke dans encrypted_password (Fernet)."""
+        from apps.core.services.encryption import encrypt_credential
+        self.encrypted_password = encrypt_credential(plaintext)
+
+    def has_stored_password(self) -> bool:
+        return bool(self.encrypted_password)
 
 
 class PtPLink(models.Model):

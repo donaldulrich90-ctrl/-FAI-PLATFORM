@@ -359,26 +359,37 @@ class RouterOSClient:
 
 def resolve_device_credential(device: NetworkDevice) -> str | None:
     """
-    Résout le mot de passe depuis password_hint :
-      - "enc:<token>" → déchiffrement Fernet
-      - "env:<VAR>"   → variable d'environnement
-      - "<VAR>"       → variable d'environnement (legacy)
-      - fallback      → MIKROTIK_FALLBACK_SSH_PASSWORD_ENV
+    Résout le mot de passe de l'équipement, dans cet ordre de priorité :
+      1. encrypted_password (Fernet) — si renseigné
+      2. password_hint "enc:<token>"  — token Fernet dans le champ hint (legacy)
+      3. password_hint "env:<VAR>"    — variable d'environnement OS
+      4. password_hint "<VAR>"        — variable d'environnement OS (legacy)
+      5. MIKROTIK_FALLBACK_SSH_PASSWORD_ENV
     """
+    # 1. Champ chiffré dédié (prioritaire)
+    encrypted = (getattr(device, "encrypted_password", None) or "").strip()
+    if encrypted:
+        from apps.core.services.encryption import decrypt_credential
+        return decrypt_credential(encrypted)
+
     hint = (device.password_hint or "").strip()
 
+    # 2. Ancien format enc: dans password_hint
     if hint.startswith("enc:"):
         from apps.core.services.encryption import decrypt_credential
         return decrypt_credential(hint[4:])
 
+    # 3. Variable d'environnement via env:
     if hint.startswith("env:"):
         return os.environ.get(hint[4:].strip())
 
+    # 4. Nom de variable d'environnement brut (legacy)
     if hint:
         val = os.environ.get(hint)
         if val:
             return val
 
+    # 5. Fallback global
     fallback_env = (getattr(settings, "MIKROTIK_FALLBACK_SSH_PASSWORD_ENV", "") or "").strip()
     if fallback_env:
         return os.environ.get(fallback_env)
