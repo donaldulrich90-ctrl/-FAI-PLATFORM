@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 
 from apps.core.services.routeros_client import RouterOSClient, RouterOSError, _ros_remove_ok
+from apps.monitoring.audit import log_router_action
 
 if TYPE_CHECKING:
     from apps.core.models import NetworkDevice, Site
@@ -163,7 +164,13 @@ def resolve_wifi_zone_mikrotik_for_site(site: Site) -> NetworkDevice | None:
 
 # ── API publique : blocage / déblocage MAC (Wi-Fi Simple) ─────────────────────
 
-def block_mac_address(device: NetworkDevice, mac: str) -> bool:
+def block_mac_address(
+    device: NetworkDevice,
+    mac: str,
+    *,
+    performed_by=None,
+    ip_address: str | None = None,
+) -> bool:
     if not device.is_active:
         logger.warning("Équipement %s inactif — blocage annulé.", device)
         return False
@@ -178,15 +185,43 @@ def block_mac_address(device: NetworkDevice, mac: str) -> bool:
 
     bridge = _mikrotik_bridge_name(device)
     comment = _comment_for_mac(mac_n)
+    dry_run = bool(getattr(settings, "ROUTER_CONTROL_DRY_RUN", False))
     try:
         with RouterOSClient(device) as client:
-            return client.bridge_filter_drop_by_mac(mac_n, bridge, comment)
+            ok = client.bridge_filter_drop_by_mac(mac_n, bridge, comment)
+        log_router_action(
+            device,
+            "mac_block",
+            target=mac_n,
+            command_sent=f"bridge filter drop mac={mac_n} bridge={bridge}",
+            success=ok,
+            dry_run=dry_run,
+            performed_by=performed_by,
+            ip_address=ip_address,
+        )
+        return ok
     except RouterOSError as exc:
+        log_router_action(
+            device,
+            "mac_block",
+            target=mac_n,
+            success=False,
+            error_message=str(exc)[:500],
+            dry_run=dry_run,
+            performed_by=performed_by,
+            ip_address=ip_address,
+        )
         logger.error("block_mac %s device=%s : %s", mac_n, device, exc)
         return False
 
 
-def unblock_mac_address(device: NetworkDevice, mac: str) -> bool:
+def unblock_mac_address(
+    device: NetworkDevice,
+    mac: str,
+    *,
+    performed_by=None,
+    ip_address: str | None = None,
+) -> bool:
     if not device.is_active:
         logger.warning("Équipement %s inactif — déblocage annulé.", device)
         return False
@@ -200,10 +235,32 @@ def unblock_mac_address(device: NetworkDevice, mac: str) -> bool:
         return False
 
     comment = _comment_for_mac(mac_n)
+    dry_run = bool(getattr(settings, "ROUTER_CONTROL_DRY_RUN", False))
     try:
         with RouterOSClient(device) as client:
-            return client.bridge_filter_remove(comment)
+            ok = client.bridge_filter_remove(comment)
+        log_router_action(
+            device,
+            "mac_unblock",
+            target=mac_n,
+            command_sent=f"bridge filter remove comment={comment}",
+            success=ok,
+            dry_run=dry_run,
+            performed_by=performed_by,
+            ip_address=ip_address,
+        )
+        return ok
     except RouterOSError as exc:
+        log_router_action(
+            device,
+            "mac_unblock",
+            target=mac_n,
+            success=False,
+            error_message=str(exc)[:500],
+            dry_run=dry_run,
+            performed_by=performed_by,
+            ip_address=ip_address,
+        )
         logger.error("unblock_mac %s device=%s : %s", mac_n, device, exc)
         return False
 
@@ -221,7 +278,12 @@ def sync_wifi_simple_subscriber_access(
 
 # ── API publique : hotspot vouchers (Wi-Fi Zone) ──────────────────────────────
 
-def provision_wifi_zone_hotspot_for_ticket(ticket: Ticket) -> tuple[bool, str]:
+def provision_wifi_zone_hotspot_for_ticket(
+    ticket: Ticket,
+    *,
+    performed_by=None,
+    ip_address: str | None = None,
+) -> tuple[bool, str]:
     """Crée ou remplace l'utilisateur Hotspot sur le MikroTik du site pour ce ticket."""
     site = ticket.site
     device = resolve_wifi_zone_mikrotik_for_site(site)
@@ -246,10 +308,11 @@ def provision_wifi_zone_hotspot_for_ticket(ticket: Ticket) -> tuple[bool, str]:
 
     server = (getattr(settings, "MIKROTIK_HOTSPOT_SERVER", "") or "").strip()
     comment = f"faso-wifi-zone-ticket-{ticket.pk}"
+    dry_run = bool(getattr(settings, "ROUTER_CONTROL_DRY_RUN", False))
 
     try:
         with RouterOSClient(device) as client:
-            return client.hotspot_user_upsert(
+            ok, err_msg = client.hotspot_user_upsert(
                 name=code,
                 password=code,
                 profile=profile,
@@ -257,13 +320,40 @@ def provision_wifi_zone_hotspot_for_ticket(ticket: Ticket) -> tuple[bool, str]:
                 comment=comment,
                 server=server,
             )
+        log_router_action(
+            device,
+            "hotspot_provision",
+            target=code,
+            command_sent=f"hotspot user add name={code} profile={profile} limit-uptime={limit_uptime}",
+            success=ok,
+            error_message=err_msg,
+            dry_run=dry_run,
+            performed_by=performed_by,
+            ip_address=ip_address,
+        )
+        return ok, err_msg
     except RouterOSError as exc:
         msg = str(exc)[:500]
+        log_router_action(
+            device,
+            "hotspot_provision",
+            target=code,
+            success=False,
+            error_message=msg,
+            dry_run=dry_run,
+            performed_by=performed_by,
+            ip_address=ip_address,
+        )
         logger.error("provision_hotspot ticket=%s device=%s : %s", ticket.pk, device, exc)
         return False, msg
 
 
-def remove_wifi_zone_hotspot_for_ticket(ticket: Ticket) -> tuple[bool, str]:
+def remove_wifi_zone_hotspot_for_ticket(
+    ticket: Ticket,
+    *,
+    performed_by=None,
+    ip_address: str | None = None,
+) -> tuple[bool, str]:
     """Supprime l'utilisateur Hotspot (login = code du ticket) sur le MikroTik du site."""
     site = ticket.site
     device = resolve_wifi_zone_mikrotik_for_site(site)
@@ -274,12 +364,35 @@ def remove_wifi_zone_hotspot_for_ticket(ticket: Ticket) -> tuple[bool, str]:
     if any(c in code for c in '"\\\n\r\t'):
         return False, "Caractères non autorisés dans le code pour la commande RouterOS."
 
+    dry_run = bool(getattr(settings, "ROUTER_CONTROL_DRY_RUN", False))
     try:
         with RouterOSClient(device) as client:
             ok = client.hotspot_user_remove(code)
-            return ok, "" if ok else "Échec suppression utilisateur RouterOS."
+        err_msg = "" if ok else "Échec suppression utilisateur RouterOS."
+        log_router_action(
+            device,
+            "hotspot_remove",
+            target=code,
+            command_sent=f"hotspot user remove [find name={code}]",
+            success=ok,
+            error_message=err_msg,
+            dry_run=dry_run,
+            performed_by=performed_by,
+            ip_address=ip_address,
+        )
+        return ok, err_msg
     except RouterOSError as exc:
         msg = str(exc)[:500]
+        log_router_action(
+            device,
+            "hotspot_remove",
+            target=code,
+            success=False,
+            error_message=msg,
+            dry_run=dry_run,
+            performed_by=performed_by,
+            ip_address=ip_address,
+        )
         logger.error("remove_hotspot ticket=%s device=%s : %s", ticket.pk, device, exc)
         return False, msg
 

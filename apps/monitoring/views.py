@@ -10,6 +10,7 @@ from django.views.decorators.http import require_GET, require_POST
 from apps.core.models import NetworkDevice, PtPLink, Site
 from apps.tenants.access import user_sees_all_tenants
 
+from .audit import log_router_action
 from .models import DeviceConfigChange
 from .services.ubiquiti_ssh import (
     ALLOWED_FREQUENCIES_5GHZ,
@@ -221,6 +222,17 @@ def antenna_freq_change(request: HttpRequest, pk: int):
             success=result["ok"],
             message=result["message"],
             dry_run=dry_run,
+        )
+        log_router_action(
+            device,
+            "freq_change",
+            target=str(freq_mhz),
+            command_sent=f"cfg -s radio.1.freq={freq_mhz} && cfg -c && reboot",
+            success=result["ok"],
+            error_message="" if result["ok"] else result["message"],
+            dry_run=dry_run,
+            performed_by=user,
+            ip_address=request.META.get("REMOTE_ADDR"),
         )
 
         if result["ok"]:
