@@ -4,66 +4,75 @@
 {% block breadcrumb %}Monitoring / Antennes{% endblock %}
 
 {% block content %}
-<div class="page-header anim-up">
-  <h1 class="page-title">Antennes Ubiquiti</h1>
-  <p class="page-sub">Gestion à distance des fréquences radio (airOS AC) — réservé administrateurs.</p>
+<div class="page-header anim-up" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+  <div>
+    <h1 class="page-title">Antennes Ubiquiti</h1>
+    <p class="page-sub">Métriques SNMP en temps réel — actualisation automatique toutes les 2 min.</p>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;">
+    <span id="refresh-badge" class="badge badge-slate">Chargement…</span>
+    <button class="btn btn-ghost btn-sm" onclick="refreshAll()">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+      Actualiser
+    </button>
+  </div>
 </div>
 
-<!-- Liste des antennes -->
-<div class="card anim-up-1" style="overflow:hidden;padding:0;margin-bottom:24px;">
-  <div class="section-head" style="padding:18px 22px 0;">
-    <h2>Équipements actifs</h2>
-    <span class="badge badge-cyan">{{ devices|length }} antenne{{ devices|length|pluralize }}</span>
-  </div>
+{% if devices %}
+<!-- Cartes antennes -->
+<div id="antenna-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;margin-bottom:24px;">
+  {% for dev in devices %}
+  <div class="card" id="card-{{ dev.pk }}" style="padding:20px;">
+    <!-- En-tête -->
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:14px;">
+      <div>
+        <div style="font-weight:700;font-size:15px;color:var(--text);">{{ dev.name }}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px;">{{ dev.site.name }} · <span class="mono">{{ dev.management_host }}</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+        <span id="status-{{ dev.pk }}" class="badge badge-slate">
+          <span id="status-dot-{{ dev.pk }}" style="width:6px;height:6px;border-radius:50%;background:var(--muted);display:inline-block;margin-right:4px;"></span>
+          <span id="status-text-{{ dev.pk }}">…</span>
+        </span>
+        {% if user.is_admin_role %}
+        <a href="{% url 'monitoring:antenna_freq_change' dev.pk %}" class="btn btn-amber btn-sm" style="font-size:11px;padding:5px 10px;">
+          Changer fréquence
+        </a>
+        {% endif %}
+      </div>
+    </div>
 
-  {% if devices %}
-  <div style="overflow-x:auto;margin-top:4px;">
-    <table class="tbl">
-      <thead>
-        <tr>
-          <th style="text-align:left;">Nom</th>
-          <th style="text-align:left;">Site</th>
-          <th style="text-align:left;">IP / Host</th>
-          <th style="text-align:right;">Port SSH</th>
-          <th style="text-align:center;">Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for dev in devices %}
-        <tr>
-          <td>
-            <span style="font-weight:600;color:var(--text);">{{ dev.name }}</span>
-          </td>
-          <td style="color:var(--dim);">{{ dev.site.name }}</td>
-          <td class="mono" style="color:var(--cyan);">{{ dev.management_host }}</td>
-          <td style="text-align:right;" class="mono">{{ dev.ssh_port }}</td>
-          <td style="text-align:center;">
-            <a href="{% url 'monitoring:antenna_freq_change' dev.pk %}" class="btn btn-amber btn-sm">
-              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
-              </svg>
-              Changer fréquence
-            </a>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <!-- Métriques grid -->
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;" id="metrics-{{ dev.pk }}">
+      <!-- Placeholders -->
+      {% for _ in "1234567" %}
+      <div class="metric-item" style="background:rgba(255,255,255,.03);border-radius:8px;padding:10px;">
+        <div style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;">—</div>
+        <div style="font-size:18px;font-weight:700;color:var(--dim);">…</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div id="error-{{ dev.pk }}" style="display:none;margin-top:10px;" class="alert alert-warn">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+      <span id="error-text-{{ dev.pk }}"></span>
+    </div>
   </div>
-  {% else %}
-  <div class="empty-state" style="padding:40px 24px;">
+  {% endfor %}
+</div>
+{% else %}
+<div class="card anim-up-1" style="padding:0;margin-bottom:24px;">
+  <div class="empty-state" style="padding:48px 24px;">
     <svg width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/></svg>
     <p>Aucune antenne Ubiquiti active.</p>
     <p style="font-size:12px;margin-top:4px;color:var(--muted);">Ajoutez des équipements Ubiquiti dans l'administration (Vendor = Ubiquiti).</p>
   </div>
-  {% endif %}
 </div>
+{% endif %}
 
 <!-- Avertissement PtP -->
 <div class="alert alert-warn anim-up-2" style="margin-bottom:24px;">
-  <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="flex-shrink:0">
-    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-  </svg>
+  <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
   <div>
     <strong>Liaisons PtP — ordre impératif :</strong>
     changer d'abord l'antenne <strong>distante</strong> (extrémité B), puis l'antenne <strong>locale</strong> (extrémité A).
@@ -101,13 +110,10 @@
           </td>
           <td style="color:var(--dim);">{{ c.changed_by.get_full_name|default:c.changed_by.username|default:"—" }}</td>
           <td style="text-align:right;" class="mono">{% if c.old_value %}{{ c.old_value }} MHz{% else %}—{% endif %}</td>
-          <td style="text-align:right;" class="mono" style="color:var(--cyan);">{% if c.new_value %}{{ c.new_value }} MHz{% else %}—{% endif %}</td>
+          <td style="text-align:right;" class="mono">{% if c.new_value %}{{ c.new_value }} MHz{% else %}—{% endif %}</td>
           <td style="text-align:center;">
-            {% if c.success %}
-            <span class="badge badge-green" style="font-size:11px;">OK</span>
-            {% else %}
-            <span class="badge badge-red" style="font-size:11px;">Erreur</span>
-            {% endif %}
+            {% if c.success %}<span class="badge badge-green" style="font-size:11px;">OK</span>
+            {% else %}<span class="badge badge-red" style="font-size:11px;">Erreur</span>{% endif %}
           </td>
           <td style="font-size:12px;color:var(--muted);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ c.message }}">{{ c.message }}</td>
         </tr>
@@ -117,4 +123,80 @@
   </div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const DEVICE_PKS = [{% for dev in devices %}{{ dev.pk }}{% if not forloop.last %},{% endif %}{% endfor %}];
+const SNMP_BASE = "/antennes/";
+let _refreshTimer = null;
+
+const METRIC_DEFS = [
+  {key: 'freq_mhz',          label: 'Fréquence',     fmt: v => v != null ? v + ' MHz' : 'N/D'},
+  {key: 'tx_power_dbm',      label: 'Puissance TX',  fmt: v => v != null ? v + ' dBm' : 'N/D'},
+  {key: 'client_count',      label: 'Clients',       fmt: v => v != null ? v : 'N/D'},
+  {key: 'avg_signal_dbm',    label: 'Signal moyen',  fmt: v => v != null ? v + ' dBm' : 'N/D'},
+  {key: 'throughput_in_mbps',label: 'Upload',        fmt: v => v != null ? v + ' MB' : 'N/D'},
+  {key: 'throughput_out_mbps',label:'Download',      fmt: v => v != null ? v + ' MB' : 'N/D'},
+  {key: 'uptime',            label: 'Uptime',        fmt: v => v || 'N/D'},
+];
+
+function signalColor(dbm) {
+  if (dbm === null) return 'var(--muted)';
+  if (dbm >= -60) return 'var(--green)';
+  if (dbm >= -75) return 'var(--amber)';
+  return 'var(--red)';
+}
+
+async function refreshDevice(pk) {
+  try {
+    const resp = await fetch(`/antennes/${pk}/snmp/`, {headers: {'X-Requested-With': 'XMLHttpRequest'}});
+    const d = await resp.json();
+
+    const statusEl  = document.getElementById(`status-${pk}`);
+    const dotEl     = document.getElementById(`status-dot-${pk}`);
+    const textEl    = document.getElementById(`status-text-${pk}`);
+    const metricsEl = document.getElementById(`metrics-${pk}`);
+    const errorEl   = document.getElementById(`error-${pk}`);
+
+    if (d.online) {
+      statusEl.className = 'badge badge-green';
+      dotEl.style.background = 'var(--green)';
+      textEl.textContent = 'En ligne';
+    } else {
+      statusEl.className = 'badge badge-red';
+      dotEl.style.background = 'var(--red)';
+      textEl.textContent = 'Hors ligne';
+    }
+
+    metricsEl.innerHTML = METRIC_DEFS.map(m => {
+      const val = d[m.key];
+      const color = m.key === 'avg_signal_dbm' ? signalColor(val) : 'var(--text)';
+      return `<div style="background:rgba(255,255,255,.03);border-radius:8px;padding:10px;">
+        <div style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;">${m.label}</div>
+        <div style="font-size:18px;font-weight:700;color:${color};">${m.fmt(val)}</div>
+      </div>`;
+    }).join('');
+
+    if (d.error && d.online) {
+      errorEl.style.display = 'flex';
+      document.getElementById(`error-text-${pk}`).textContent = d.error;
+    } else {
+      errorEl.style.display = 'none';
+    }
+  } catch(e) {
+    console.warn('SNMP fetch error device', pk, e);
+  }
+}
+
+function refreshAll() {
+  clearTimeout(_refreshTimer);
+  const now = new Date().toLocaleTimeString('fr-FR');
+  document.getElementById('refresh-badge').textContent = 'Mis à jour : ' + now;
+  DEVICE_PKS.forEach(pk => refreshDevice(pk));
+  _refreshTimer = setTimeout(refreshAll, 120000);
+}
+
+document.addEventListener('DOMContentLoaded', refreshAll);
+</script>
 {% endblock %}

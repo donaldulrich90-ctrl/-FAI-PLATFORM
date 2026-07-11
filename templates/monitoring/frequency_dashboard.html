@@ -1,0 +1,365 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Gestion des Fréquences{% endblock %}
+{% block breadcrumb %}Antennes / Fréquences{% endblock %}
+
+{% block extra_head %}
+<style>
+  .snr-bar { display:inline-flex; align-items:center; gap:8px; }
+  .snr-track { width:80px; height:6px; background:rgba(255,255,255,.08); border-radius:3px; overflow:hidden; }
+  .snr-fill  { height:100%; border-radius:3px; transition:width .3s; }
+  .state-normal   { color:var(--green); }
+  .state-degrade  { color:var(--amber); }
+  .state-critique { color:#F97316; }
+  .state-urgence  { color:var(--red); }
+  .toggle-pill {
+    display:inline-flex; align-items:center; gap:6px; padding:4px 12px;
+    border-radius:999px; font-size:12px; font-weight:600; cursor:pointer;
+    border:none; transition:all .15s;
+  }
+  .toggle-on  { background:rgba(16,185,129,.2); color:#10B981; }
+  .toggle-off { background:rgba(100,116,139,.2); color:#64748B; }
+  .freq-badge { display:inline-block; padding:2px 8px; border-radius:6px; font-size:12px; font-weight:700; font-family:monospace; background:rgba(201,151,44,.15); color:var(--primary); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header anim-up" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+  <div>
+    <h1 class="page-title">Gestion Intelligente des Fréquences</h1>
+    <p class="page-sub">Surveillance automatique SNR/signal et basculement de fréquences Ubiquiti.</p>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;">
+    {% if dry_run %}
+    <span class="badge badge-amber" style="font-size:12px;">DRY-RUN actif</span>
+    {% endif %}
+    <a href="{% url 'monitoring:antenna_list' %}" class="btn btn-ghost btn-sm">← Antennes</a>
+  </div>
+</div>
+
+<!-- Tableau des antennes -->
+<div class="card anim-up-1" style="padding:0;overflow:hidden;margin-bottom:24px;">
+  <div class="section-head" style="padding:18px 22px 0;">
+    <h2>Antennes Ubiquiti actives</h2>
+    <span class="badge badge-slate" style="font-size:11px;">{{ device_rows|length }} antenne{{ device_rows|length|pluralize }}</span>
+  </div>
+  {% if device_rows %}
+  <div style="overflow-x:auto;">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Antenne</th>
+          <th>Site</th>
+          <th>Fréq. principale</th>
+          <th>Fréquences secours</th>
+          <th>Seuils</th>
+          <th>Dernier changement</th>
+          <th>Auto</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in device_rows %}
+        {% with dev=row.device cfg=row.config last=row.last_change %}
+        <tr id="row-{{ dev.pk }}">
+          <td>
+            <p style="font-size:13px;font-weight:600;color:var(--text);">{{ dev.name }}</p>
+            <p class="mono" style="font-size:11px;color:var(--muted);">{{ dev.management_host }}</p>
+          </td>
+          <td style="font-size:13px;color:var(--dim);">{{ dev.site.name|default:"—" }}</td>
+          <td>
+            {% if cfg %}
+            <span class="freq-badge">{{ cfg.freq_principale }} MHz</span>
+            {% else %}
+            <span style="color:var(--dim);font-size:12px;">Non configuré</span>
+            {% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--dim);">
+            {% if cfg %}
+              {% if cfg.freq_secours_1 %}<span class="freq-badge" style="opacity:.7;">{{ cfg.freq_secours_1 }}</span> {% endif %}
+              {% if cfg.freq_secours_2 %}<span class="freq-badge" style="opacity:.7;">{{ cfg.freq_secours_2 }}</span> {% endif %}
+              {% if cfg.freq_secours_3 %}<span class="freq-badge" style="opacity:.7;">{{ cfg.freq_secours_3 }}</span> {% endif %}
+              {% if not cfg.freq_secours_1 %}—{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--dim);">
+            {% if cfg %}
+            SNR ≥ {{ cfg.seuil_snr_min }} dB<br>
+            Sig ≥ {{ cfg.seuil_signal_min }} dBm
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if last %}
+            <p style="font-size:12px;color:var(--text);">{{ last.freq_avant }}→{{ last.freq_apres }} MHz</p>
+            <p style="font-size:11px;color:var(--muted);">{{ last.created_at|date:"d/m H:i" }} · {{ last.get_raison_display }}</p>
+            {% else %}
+            <span style="font-size:12px;color:var(--dim);">Aucun</span>
+            {% endif %}
+          </td>
+          <td>
+            <button class="toggle-pill {% if cfg and cfg.auto_switch %}toggle-on{% else %}toggle-off{% endif %}"
+                    onclick="toggleAuto({{ dev.pk }}, this)"
+                    title="Basculer l'automatisation">
+              <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2zm0 18a8 8 0 110-16 8 8 0 010 16z"/><path d="M12 6v6l4 2"/></svg>
+              {% if cfg and cfg.auto_switch %}Auto ON{% else %}Auto OFF{% endif %}
+            </button>
+          </td>
+          <td>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button class="btn btn-ghost btn-sm" onclick="openConfig({{ dev.pk }}, '{{ dev.name }}', {{ cfg.freq_principale|default:5180 }}, {{ cfg.freq_secours_1|default:'null' }}, {{ cfg.freq_secours_2|default:'null' }}, {{ cfg.freq_secours_3|default:'null' }}, {{ cfg.seuil_snr_min|default:15 }}, {{ cfg.seuil_signal_min|default:-75 }}, {% if cfg and cfg.auto_switch %}true{% else %}false{% endif %})">
+                Configurer
+              </button>
+              <button class="btn btn-ghost btn-sm" style="color:var(--amber);" onclick="openManualChange({{ dev.pk }}, '{{ dev.name }}')">
+                Changer freq.
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% endwith %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state" style="padding:48px 0;">
+    <p style="color:var(--muted);font-size:13px;">Aucune antenne Ubiquiti active trouvée.</p>
+    <a href="{% url 'monitoring:antenna_list' %}" class="btn btn-ghost btn-sm" style="margin-top:12px;">Gérer les antennes</a>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Historique récent -->
+<div class="card anim-up-2" style="padding:0;overflow:hidden;">
+  <div class="section-head" style="padding:18px 22px 0;">
+    <h2>Historique des changements</h2>
+    <span class="badge badge-slate" style="font-size:11px;">30 derniers</span>
+  </div>
+  {% if recent_history %}
+  <div style="overflow-x:auto;">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Antenne</th>
+          <th>Avant → Après</th>
+          <th>Raison</th>
+          <th>SNR avant</th>
+          <th>Déclencheur</th>
+          <th>Résultat</th>
+          <th>Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in recent_history %}
+        <tr>
+          <td style="font-size:13px;font-weight:600;">{{ h.device.name }}</td>
+          <td>
+            <span class="freq-badge" style="opacity:.7;">{{ h.freq_avant }}</span>
+            <span style="color:var(--dim);margin:0 4px;">→</span>
+            <span class="freq-badge">{{ h.freq_apres }}</span>
+            <span style="font-size:10px;color:var(--muted);margin-left:2px;">MHz</span>
+          </td>
+          <td style="font-size:12px;color:var(--dim);">{{ h.get_raison_display }}</td>
+          <td style="font-size:12px;font-family:monospace;">
+            {% if h.snr_avant is not None %}{{ h.snr_avant|floatformat:1 }} dB{% else %}—{% endif %}
+          </td>
+          <td>
+            <span class="badge {% if h.declencheur == 'auto' %}badge-slate{% elif h.declencheur == 'urgence' %}badge-red{% else %}badge-amber{% endif %}" style="font-size:10px;">
+              {{ h.get_declencheur_display }}
+            </span>
+          </td>
+          <td>
+            <span class="badge {% if h.resultat == 'ameliore' %}badge-green{% elif h.resultat == 'degrade' %}badge-red{% else %}badge-slate{% endif %}" style="font-size:10px;">
+              {{ h.get_resultat_display }}
+            </span>
+            {% if h.dry_run %}<span class="badge badge-amber" style="font-size:9px;margin-left:4px;">DRY</span>{% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--muted);">{{ h.created_at|date:"d/m/Y H:i" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state" style="padding:36px 0;">
+    <p style="color:var(--muted);font-size:13px;">Aucun changement de fréquence enregistré.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Modal configuration -->
+<div id="modal-config" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center;">
+  <div class="card" style="width:480px;max-width:95vw;padding:28px;max-height:90vh;overflow-y:auto;">
+    <div class="section-head" style="margin-bottom:20px;">
+      <h2 id="modal-config-title">Configuration fréquence</h2>
+      <button class="btn btn-ghost btn-sm" onclick="closeConfig()">✕</button>
+    </div>
+    <form id="form-config" style="display:flex;flex-direction:column;gap:14px;">
+      <input type="hidden" id="cfg-pk">
+      <div>
+        <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:6px;">Fréquence principale (MHz)</label>
+        <select id="cfg-freq-principale" style="width:100%;">
+          {% for freq, label in frequencies %}
+          <option value="{{ freq }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;">Secours 1</label>
+          <select id="cfg-secours-1" style="width:100%;">
+            <option value="">—</option>
+            {% for freq, label in frequencies %}<option value="{{ freq }}">{{ freq }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;">Secours 2</label>
+          <select id="cfg-secours-2" style="width:100%;">
+            <option value="">—</option>
+            {% for freq, label in frequencies %}<option value="{{ freq }}">{{ freq }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;">Secours 3</label>
+          <select id="cfg-secours-3" style="width:100%;">
+            <option value="">—</option>
+            {% for freq, label in frequencies %}<option value="{{ freq }}">{{ freq }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;">Seuil SNR min (dB)</label>
+          <input type="number" id="cfg-snr-min" min="0" max="40" style="width:100%;">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;">Seuil signal min (dBm)</label>
+          <input type="number" id="cfg-signal-min" min="-100" max="-30" style="width:100%;">
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <input type="checkbox" id="cfg-auto-switch" style="width:16px;height:16px;">
+        <label for="cfg-auto-switch" style="font-size:13px;font-weight:600;color:var(--text);cursor:pointer;">Basculement automatique activé</label>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px;">
+        <button type="button" class="btn btn-ghost btn-md" onclick="closeConfig()">Annuler</button>
+        <button type="button" class="btn btn-primary btn-md" onclick="saveConfig()">Enregistrer</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal changement manuel -->
+<div id="modal-change" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center;">
+  <div class="card" style="width:360px;max-width:95vw;padding:28px;">
+    <div class="section-head" style="margin-bottom:20px;">
+      <h2 id="modal-change-title">Changer la fréquence</h2>
+      <button class="btn btn-ghost btn-sm" onclick="closeChange()">✕</button>
+    </div>
+    <input type="hidden" id="change-pk">
+    <div style="margin-bottom:16px;">
+      <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:6px;">Nouvelle fréquence</label>
+      <select id="change-freq" style="width:100%;">
+        {% for freq, label in frequencies %}
+        <option value="{{ freq }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:var(--amber);">
+      ⚠ L'antenne redémarrera (~30 secondes d'indisponibilité). Pour les liens PtP, les deux extrémités seront changées.
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button type="button" class="btn btn-ghost btn-md" onclick="closeChange()">Annuler</button>
+      <button type="button" class="btn btn-primary btn-md" onclick="execChange()" style="background:rgba(245,158,11,.2);color:var(--amber);border-color:rgba(245,158,11,.3);">Appliquer</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = getCsrf();
+
+function toggleAuto(pk, btn) {
+  fetch(`/monitoring/antennes/${pk}/frequences/auto/`, {method:'POST', body: (() => { const f=new FormData(); f.append('csrfmiddlewaretoken', CSRF); return f; })()})
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) { showToast('Erreur: ' + (d.error||'inconnue'), 'error'); return; }
+      btn.className = 'toggle-pill ' + (d.auto_switch ? 'toggle-on' : 'toggle-off');
+      btn.textContent = d.auto_switch ? 'Auto ON' : 'Auto OFF';
+      showToast(d.auto_switch ? 'Automatisation activée.' : 'Automatisation désactivée.', 'success');
+    })
+    .catch(() => showToast('Erreur réseau.', 'error'));
+}
+
+function openConfig(pk, name, fp, s1, s2, s3, snr, sig, autoOn) {
+  document.getElementById('modal-config-title').textContent = 'Config — ' + name;
+  document.getElementById('cfg-pk').value = pk;
+  _setSelect('cfg-freq-principale', fp);
+  _setSelect('cfg-secours-1', s1 || '');
+  _setSelect('cfg-secours-2', s2 || '');
+  _setSelect('cfg-secours-3', s3 || '');
+  document.getElementById('cfg-snr-min').value = snr;
+  document.getElementById('cfg-signal-min').value = sig;
+  document.getElementById('cfg-auto-switch').checked = autoOn;
+  document.getElementById('modal-config').style.display = 'flex';
+}
+
+function closeConfig() { document.getElementById('modal-config').style.display = 'none'; }
+
+function _setSelect(id, val) {
+  const sel = document.getElementById(id);
+  for (let o of sel.options) { if (o.value == val) { o.selected = true; return; } }
+}
+
+function saveConfig() {
+  const pk = document.getElementById('cfg-pk').value;
+  const fd = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  fd.append('freq_principale', document.getElementById('cfg-freq-principale').value);
+  fd.append('freq_secours_1', document.getElementById('cfg-secours-1').value);
+  fd.append('freq_secours_2', document.getElementById('cfg-secours-2').value);
+  fd.append('freq_secours_3', document.getElementById('cfg-secours-3').value);
+  fd.append('seuil_snr_min', document.getElementById('cfg-snr-min').value);
+  fd.append('seuil_signal_min', document.getElementById('cfg-signal-min').value);
+  fd.append('auto_switch', document.getElementById('cfg-auto-switch').checked ? '1' : '0');
+  fetch(`/monitoring/antennes/${pk}/frequences/config/`, {method:'POST', body:fd})
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) { showToast('Configuration enregistrée.', 'success'); closeConfig(); setTimeout(() => location.reload(), 800); }
+      else showToast('Erreur: ' + (d.error||'inconnue'), 'error');
+    })
+    .catch(() => showToast('Erreur réseau.', 'error'));
+}
+
+function openManualChange(pk, name) {
+  document.getElementById('modal-change-title').textContent = 'Changer — ' + name;
+  document.getElementById('change-pk').value = pk;
+  document.getElementById('modal-change').style.display = 'flex';
+}
+
+function closeChange() { document.getElementById('modal-change').style.display = 'none'; }
+
+function execChange() {
+  const pk = document.getElementById('change-pk').value;
+  const freq = document.getElementById('change-freq').value;
+  const fd = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  fd.append('freq_mhz', freq);
+  showToast('Changement en cours…', 'info');
+  fetch(`/monitoring/antennes/${pk}/frequences/changer/`, {method:'POST', body:fd})
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) { showToast('Fréquence changée vers ' + freq + ' MHz.', 'success'); closeChange(); setTimeout(() => location.reload(), 1500); }
+      else showToast('Erreur: ' + (d.error||'inconnue'), 'error');
+    })
+    .catch(() => showToast('Erreur réseau.', 'error'));
+}
+
+// Fermer les modaux en cliquant en dehors
+['modal-config','modal-change'].forEach(id => {
+  document.getElementById(id).addEventListener('click', function(e) {
+    if (e.target === this) this.style.display = 'none';
+  });
+});
+</script>
+{% endblock %}

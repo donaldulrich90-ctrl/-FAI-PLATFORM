@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Simulations réseau — Faso ISP Manager{% endblock %}
+{% block breadcrumb %}Simulation réseau{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+    <div>
+      <h1 class="page-title">Simulation réseau</h1>
+      <p class="page-sub">Planification et dimensionnement d'installations sans fil</p>
+    </div>
+    <form method="post" action="{% url 'simulation:simulation_create' %}">
+      {% csrf_token %}
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input name="name" type="text" placeholder="Nom de la simulation…"
+               style="background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 14px;font-size:13px;width:220px;"
+               required>
+        <button type="submit" class="btn btn-primary btn-md">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+          Nouvelle
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if simulations %}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;">
+  {% for sim in simulations %}
+  <a href="{% url 'simulation:simulation_detail' sim.pk %}"
+     style="text-decoration:none;"
+     class="card anim-up-{{ forloop.counter|default:'1' }}">
+    <div style="padding:20px 22px;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px;">
+        <div style="width:40px;height:40px;border-radius:10px;background:rgba(201,151,44,.1);border:1px solid rgba(201,151,44,.18);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg width="20" height="20" fill="none" stroke="#C9972C" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+        </div>
+        <span class="badge badge-slate">Simulation</span>
+      </div>
+      <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px;">{{ sim.name }}</div>
+      <div style="font-size:12px;color:var(--dim);">
+        {% if sim.created_by %}Par {{ sim.created_by.get_full_name|default:sim.created_by.username }} · {% endif %}
+        {{ sim.updated_at|date:"d/m/Y H:i" }}
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card">
+  <div class="empty-state">
+    <svg width="56" height="56" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+    </svg>
+    <p>Aucune simulation. Créez-en une pour commencer.</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

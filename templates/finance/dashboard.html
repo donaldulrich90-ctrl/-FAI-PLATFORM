@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Dashboard Financier{% endblock %}
+{% block breadcrumb %}Finance / Dashboard{% endblock %}
+
+{% block chartjs_assets %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .fin-stat { display:flex; flex-direction:column; gap:6px; }
+  .fin-stat .label { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; font-weight:700; }
+  .fin-stat .value { font-size:28px; font-weight:800; color:var(--text); line-height:1.1; }
+  .fin-stat .sub   { font-size:12px; color:var(--dim); }
+  .sub-row { display:grid; grid-template-columns:1fr 120px 120px 100px; align-items:center; gap:12px; padding:12px 22px; border-bottom:1px solid rgba(255,255,255,.04); font-size:13px; }
+  .sub-row:last-child { border-bottom:none; }
+  @media(max-width:640px){.sub-row{grid-template-columns:1fr 90px 80px;} .sub-row .col-plan{display:none;}}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header anim-up">
+  <h1 class="page-title">Dashboard Financier</h1>
+  <p class="page-sub">Revenus, abonnés et synthèse du mois en cours.</p>
+</div>
+
+<!-- KPI hero -->
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:18px;margin-bottom:24px;" class="anim-up-1">
+  <div class="card" style="padding:22px;">
+    <div class="fin-stat">
+      <span class="label">Revenus aujourd'hui</span>
+      <span class="value" style="color:var(--primary);">{{ revenue_today|floatformat:0 }} <span style="font-size:14px;font-weight:600;">XOF</span></span>
+      <span class="sub">Entrées caisse du jour</span>
+    </div>
+  </div>
+  <div class="card" style="padding:22px;">
+    <div class="fin-stat">
+      <span class="label">30 derniers jours</span>
+      <span class="value">{{ revenue_30|floatformat:0 }} <span style="font-size:14px;font-weight:600;">XOF</span></span>
+      <span class="sub">Total encaissé</span>
+    </div>
+  </div>
+  <div class="card" style="padding:22px;">
+    <div class="fin-stat">
+      <span class="label">Mois en cours</span>
+      <span class="value">{{ monthly_total|floatformat:0 }} <span style="font-size:14px;font-weight:600;">XOF</span></span>
+      <span class="sub">Depuis le 1er du mois</span>
+    </div>
+  </div>
+  <div class="card" style="padding:22px;">
+    <div class="fin-stat">
+      <span class="label">Abonnés actifs</span>
+      <span class="value" style="color:var(--green);">{{ actifs }}</span>
+      <span class="sub">
+        <span style="color:var(--amber);">{{ suspendus }} suspendus</span> ·
+        <span style="color:var(--red);">{{ expires }} expirés</span>
+      </span>
+    </div>
+  </div>
+  <div class="card" style="padding:22px;{% if expiring_count > 0 %}border-color:rgba(245,158,11,.35);{% endif %}">
+    <div class="fin-stat">
+      <span class="label">Expirant dans 7 j</span>
+      <span class="value" style="color:{% if expiring_count > 0 %}var(--amber){% else %}var(--dim){% endif %};">{{ expiring_count }}</span>
+      <span class="sub">Abonnés à renouveler</span>
+    </div>
+  </div>
+</div>
+
+<!-- Graphique 30 jours -->
+<div class="card anim-up-2" style="padding:24px;margin-bottom:24px;">
+  <div class="section-head" style="margin-bottom:18px;">
+    <h2>Revenus — 30 derniers jours</h2>
+    <a href="{% url 'finance:caisse_export_csv' %}" class="btn btn-ghost btn-sm">
+      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      Export CSV
+    </a>
+  </div>
+  <div style="position:relative;height:220px;">
+    <canvas id="revenueChart"></canvas>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:22px;" class="anim-up-3">
+
+  <!-- Abonnés expirant -->
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div class="section-head" style="padding:18px 22px 0;">
+      <h2>Abonnés expirant bientôt</h2>
+      <span class="badge badge-amber" style="font-size:11px;">7 jours</span>
+    </div>
+    {% if expiring_soon %}
+    <div>
+      <div class="sub-row" style="border-bottom:1px solid var(--border);cursor:default;">
+        <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;">Abonné</span>
+        <span class="col-plan" style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;">Plan</span>
+        <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;">Expiration</span>
+        <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;">J-</span>
+      </div>
+      {% for sub in expiring_soon %}
+      <a href="{% url 'wifi_zone:abonne_detail' sub.pk %}" style="text-decoration:none;display:block;">
+        <div class="sub-row" style="transition:background .12s;" onmouseover="this.style.background='rgba(4,61,43,.12)'" onmouseout="this.style.background=''">
+          <div>
+            <p style="font-size:13px;font-weight:600;color:var(--text);">{{ sub.full_name }}</p>
+            <p class="mono" style="font-size:11px;color:var(--muted);">{{ sub.phone }}</p>
+          </div>
+          <span class="col-plan" style="font-size:12px;color:var(--dim);">{% if sub.plan %}{{ sub.plan.name }}{% else %}—{% endif %}</span>
+          <span style="font-size:13px;color:var(--amber);">{{ sub.expires_at|date:"d/m/Y" }}</span>
+          <span class="badge badge-amber" style="font-size:11px;">{{ sub.days_until_expiry }}j</span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding:36px 0;">
+      <p style="color:var(--muted);font-size:13px;">Aucun abonné expirant dans les 7 prochains jours.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Raccourcis exports -->
+  <div class="card" style="padding:22px;">
+    <div class="section-head" style="margin-bottom:16px;">
+      <h2>Exports &amp; Rapports</h2>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <a href="{% url 'finance:caisse_export_csv' %}" class="btn btn-ghost btn-md" style="justify-content:flex-start;">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        Journal de caisse (CSV)
+      </a>
+      <a href="{% url 'finance:revendeur_reports_export_excel' %}" class="btn btn-ghost btn-md" style="justify-content:flex-start;">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        Rapports revendeurs (Excel)
+      </a>
+      <a href="{% url 'finance:revendeur_report_list' %}" class="btn btn-ghost btn-md" style="justify-content:flex-start;">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+        Liste des rapports
+      </a>
+      <a href="{% url 'wifi_zone:abonne_list' %}" class="btn btn-ghost btn-md" style="justify-content:flex-start;">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        Gestion abonnés
+      </a>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const labels = {{ chart_labels|safe }};
+  const data   = {{ chart_data|safe }};
+
+  const ctx = document.getElementById('revenueChart');
+  if (!ctx) return;
+
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Revenus (XOF)',
+        data: data,
+        backgroundColor: 'rgba(4,61,43,.6)',
+        borderColor: '#10B981',
+        borderWidth: 1,
+        borderRadius: 4,
+        hoverBackgroundColor: 'rgba(201,151,44,.6)',
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.parsed.y.toLocaleString('fr-FR') + ' XOF'
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255,255,255,.04)' },
+          ticks: {
+            color: '#475569',
+            maxRotation: 45,
+            callback: function(val, idx) {
+              const d = this.getLabelForValue(val);
+              return d ? d.slice(5) : '';
+            }
+          }
+        },
+        y: {
+          grid: { color: 'rgba(255,255,255,.04)' },
+          ticks: {
+            color: '#475569',
+            callback: v => v >= 1000 ? (v/1000).toFixed(0)+'k' : v
+          }
+        }
+      }
+    }
+  });
+});
+</script>
+{% endblock %}

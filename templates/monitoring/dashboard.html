@@ -1,14 +1,31 @@
 {% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
 {% block title %}Tableau de bord — Faso ISP Manager{% endblock %}
 {% block breadcrumb %}Tableau de bord{% endblock %}
 
 {% block extra_head %}
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet">
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
 <style>
   #map {
-    height: 420px;
+    height: 460px;
     border-radius: 14px;
     border: 1px solid var(--border);
     background: var(--card);
+  }
+  #map-fallback {
+    display:none;
+    height:460px;
+    border-radius:14px;
+    border:1px solid var(--border);
+    background:var(--card);
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    gap:12px;
+    color:var(--muted);
+    font-size:14px;
+    text-align:center;
   }
   .map-legend { display:flex; flex-wrap:wrap; gap:14px; margin-top:12px; }
   .map-leg-item { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--dim); }
@@ -27,6 +44,22 @@
   }
   .site-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:13px 0; border-bottom:1px solid rgba(255,255,255,.04); }
   .site-row:last-child { border-bottom:none; }
+  /* Mapbox popup */
+  .mapboxgl-popup-content {
+    background: #111827 !important;
+    border: 1px solid #1E293B !important;
+    border-radius: 10px !important;
+    color: #F1F5F9 !important;
+    padding: 14px 16px !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 13px !important;
+    min-width: 160px;
+  }
+  .mapboxgl-popup-tip { border-top-color: #111827 !important; }
+  .popup-title { font-weight:700; margin-bottom:4px; color:#F1F5F9; }
+  .popup-sub   { font-size:11px; color:#94A3B8; }
+  .popup-badge { display:inline-block; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:600; margin-top:6px; }
+  .layer-toggle.layer-off { opacity:.45; }
 </style>
 {% endblock %}
 
@@ -35,7 +68,7 @@
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
     <div>
       <h1 class="page-title">Tableau de bord</h1>
-      <p class="page-sub">Monitoring réseau, liaisons PtP et sites sur la carte interactive.</p>
+      <p class="page-sub">Monitoring réseau, liaisons PtP et abonnés sur la carte 3D satellite.</p>
     </div>
     <a href="{% url 'finance:intervention_list' %}" class="btn btn-ghost btn-sm">
       <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
@@ -44,19 +77,39 @@
   </div>
 </div>
 
-<!-- Carte principale -->
+<!-- Carte 3D satellite -->
 <div class="card anim-up-1" style="padding:22px;margin-bottom:24px;">
   <div class="section-head" style="margin-bottom:14px;">
     <h2>Carte du réseau</h2>
-    <div class="map-legend">
-      <span class="map-leg-item"><span class="map-leg-dot" style="background:#00e599;"></span>PtP OK / Site actif</span>
-      <span class="map-leg-item"><span class="map-leg-dot" style="background:#ffb340;"></span>Dégradé</span>
-      <span class="map-leg-item"><span class="map-leg-dot" style="background:#ff4560;"></span>Hors service</span>
-      <span class="map-leg-item"><span class="map-leg-dot" style="background:#354f6a;"></span>Inconnu</span>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <button id="toggle-sites" class="btn btn-ghost btn-sm layer-toggle layer-on" onclick="toggleLayer('sites-circles','toggle-sites')" title="Afficher/masquer les sites">
+        <span class="map-leg-dot" style="background:#00e599;display:inline-block;"></span> Sites
+      </button>
+      <button id="toggle-ptp" class="btn btn-ghost btn-sm layer-toggle layer-on" onclick="toggleLayer('ptp-lines','toggle-ptp')" title="Afficher/masquer les liaisons PtP">
+        <span class="map-leg-dot" style="background:#354f6a;display:inline-block;"></span> PtP
+      </button>
+      <button id="toggle-subs" class="btn btn-ghost btn-sm layer-toggle layer-on" onclick="toggleLayer('subscribers-circles','toggle-subs')" title="Afficher/masquer les abonnés">
+        <span class="map-leg-dot" style="background:#06B6D4;display:inline-block;"></span> Abonnés
+      </button>
+      <button id="toggle-rotate" class="btn btn-ghost btn-sm" onclick="toggleRotation()" title="Rotation automatique">
+        ↻ Rotation
+      </button>
     </div>
   </div>
+  <div class="map-legend" style="margin-bottom:10px;">
+    <span class="map-leg-item"><span class="map-leg-dot" style="background:#00e599;"></span>Site actif / PtP OK</span>
+    <span class="map-leg-item"><span class="map-leg-dot" style="background:#ffb340;"></span>Dégradé</span>
+    <span class="map-leg-item"><span class="map-leg-dot" style="background:#ff4560;"></span>Hors service</span>
+    <span class="map-leg-item"><span class="map-leg-dot" style="background:#06B6D4;"></span>Abonné actif</span>
+  </div>
+  {% if mapbox_token %}
   <div id="map"></div>
-  <p id="map-error" class="alert alert-warn" style="display:none;margin-top:12px;"></p>
+  {% else %}
+  <div id="map-fallback" style="display:flex;">
+    <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+    <p>Carte indisponible — configurez <code>MAPBOX_ACCESS_TOKEN</code> dans l'environnement.</p>
+  </div>
+  {% endif %}
 </div>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:24px;" class="anim-up-2">
@@ -80,13 +133,13 @@
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
         Interventions terrain
       </a>
-      <a href="{% url 'wifi_zone:revendeur_dashboard' %}" class="btn btn-ghost btn-md" style="justify-content:flex-start;">
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"/></svg>
-        Espace revendeur
+      <a href="{% url 'wifi_zone:abonne_list' %}" class="btn btn-ghost btn-md" style="justify-content:flex-start;">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        Abonnés domicile
       </a>
-      <a href="{% url 'finance:revendeur_report_list' %}" class="btn btn-ghost btn-md" style="justify-content:flex-start;">
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-        Rapports journaliers
+      <a href="{% url 'finance:finance_dashboard' %}" class="btn btn-ghost btn-md" style="justify-content:flex-start;">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        Dashboard financier
       </a>
       <a href="/admin/" class="btn btn-ghost btn-md" style="justify-content:flex-start;">
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -130,68 +183,210 @@
 
 {{ sites_geojson|json_script:"sites-geojson-data" }}
 {{ ptp_geojson|json_script:"ptp-geojson-data" }}
+{{ subscribers_geojson|json_script:"subscribers-geojson-data" }}
 {% endblock %}
 
 {% block extra_js %}
+{% if mapbox_token %}
 <script>
+var map; // hoisted for layer toggle and rotation access
 (function () {
-  function lineColor(h) {
-    return h==='up'?'#00e599':h==='degraded'?'#ffb340':h==='down'?'#ff4560':'#354f6a';
-  }
-  function showErr(msg) {
-    var el=document.getElementById('map-error');
-    if(el){el.textContent=msg;el.style.display='flex';}
-  }
-  function initMap() {
-    var mapEl=document.getElementById('map');
-    if(!mapEl||typeof L==='undefined'){showErr('Leaflet non chargé.');return;}
-    var sitesEl=document.getElementById('sites-geojson-data');
-    var ptpEl=document.getElementById('ptp-geojson-data');
-    if(!sitesEl||!ptpEl){showErr('Données carte manquantes.');return;}
-    var sitesData={type:'FeatureCollection',features:[]};
-    var ptpData={type:'FeatureCollection',features:[]};
-    try{sitesData=JSON.parse(sitesEl.textContent);}catch(e){showErr('Erreur sites.');}
-    try{ptpData=JSON.parse(ptpEl.textContent);}catch(e){showErr('Erreur liaisons.');}
-    try {
-      var map=L.map('map',{zoomControl:true}).setView([12.3714,-1.5197],6);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-        maxZoom:19,
-        attribution:'&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
-      }).addTo(map);
-      var bounds=[];
-      if(ptpData.features&&ptpData.features.length){
-        ptpData.features.forEach(function(f){
-          if(!f.geometry||!f.geometry.coordinates)return;
-          var coords=f.geometry.coordinates.map(function(c){return[c[1],c[0]];});
-          var col=lineColor(f.properties&&f.properties.health);
-          var pl=L.polyline(coords,{color:col,weight:4,opacity:.9}).addTo(map);
-          var name=(f.properties&&f.properties.name)?f.properties.name:'Liaison';
-          var h=(f.properties&&f.properties.health)?f.properties.health:'?';
-          pl.bindPopup('<b>'+name+'</b><br>État : '+h);
-          coords.forEach(function(ll){bounds.push(ll);});
-        });
+  mapboxgl.accessToken = '{{ mapbox_token|escapejs }}';
+
+  var sitesData    = JSON.parse(document.getElementById('sites-geojson-data').textContent);
+  var ptpData      = JSON.parse(document.getElementById('ptp-geojson-data').textContent);
+  var subsData     = JSON.parse(document.getElementById('subscribers-geojson-data').textContent);
+
+  map = new mapboxgl.Map({
+    container: 'map',
+    style: 'mapbox://styles/mapbox/satellite-streets-v12',
+    center: [-1.5197, 12.3714],
+    zoom: 6,
+    pitch: 45,
+    bearing: -10,
+    antialias: true
+  });
+
+  map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+  map.addControl(new mapboxgl.FullscreenControl(), 'top-right');
+
+  map.on('load', function () {
+    // 3D terrain
+    map.addSource('mapbox-dem', {
+      type: 'raster-dem',
+      url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
+      tileSize: 512,
+      maxzoom: 14
+    });
+    map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 });
+
+    // ── PtP liaisons ──
+    map.addSource('ptp-links', { type: 'geojson', data: ptpData });
+    map.addLayer({
+      id: 'ptp-lines',
+      type: 'line',
+      source: 'ptp-links',
+      paint: {
+        'line-color': [
+          'match', ['get', 'health'],
+          'up',       '#00e599',
+          'degraded', '#ffb340',
+          'down',     '#ff4560',
+          '#354f6a'
+        ],
+        'line-width': 3,
+        'line-opacity': 0.85
       }
-      if(sitesData.features&&sitesData.features.length){
-        sitesData.features.forEach(function(f){
-          if(!f.geometry||f.geometry.type!=='Point')return;
-          var c=f.geometry.coordinates;
-          var ok=f.properties&&f.properties.ok;
-          var color=ok?'#00e599':'#ff4560';
-          var circle=L.circleMarker([c[1],c[0]],{radius:11,color:color,fillColor:color,fillOpacity:.8,weight:2}).addTo(map);
-          var pname=(f.properties&&f.properties.name)?f.properties.name:'';
-          var pid=(f.properties&&f.properties.site_id)?f.properties.site_id:'';
-          circle.bindPopup('<b>'+pname+'</b><br>'+pid);
-          bounds.push([c[1],c[0]]);
-        });
+    });
+    map.on('click', 'ptp-lines', function (e) {
+      var props = e.features[0].properties;
+      new mapboxgl.Popup({ closeButton: false, offset: 8 })
+        .setLngLat(e.lngLat)
+        .setHTML(
+          '<div class="popup-title">' + esc(props.name) + '</div>' +
+          '<div class="popup-sub">État : ' + esc(props.health || '?') + '</div>'
+        )
+        .addTo(map);
+    });
+    map.on('mouseenter', 'ptp-lines', function () { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'ptp-lines', function () { map.getCanvas().style.cursor = ''; });
+
+    // ── Sites ──
+    map.addSource('sites', { type: 'geojson', data: sitesData });
+    map.addLayer({
+      id: 'sites-circles',
+      type: 'circle',
+      source: 'sites',
+      paint: {
+        'circle-radius': 10,
+        'circle-color': [
+          'case', ['==', ['get', 'ok'], true], '#00e599', '#ff4560'
+        ],
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#060D1A',
+        'circle-opacity': 0.9
       }
-      if(bounds.length)map.fitBounds(bounds,{padding:[30,30]});
-      setTimeout(function(){map.invalidateSize();},120);
-    } catch(err) {
-      showErr('Carte : '+(err&&err.message?err.message:'erreur'));
+    });
+    map.on('click', 'sites-circles', function (e) {
+      var props = e.features[0].properties;
+      new mapboxgl.Popup({ closeButton: false, offset: 12 })
+        .setLngLat(e.features[0].geometry.coordinates)
+        .setHTML(
+          '<div class="popup-title">' + esc(props.name) + '</div>' +
+          '<div class="popup-sub">' + esc(props.site_id) + '</div>' +
+          '<span class="popup-badge" style="background:' + (props.ok ? 'rgba(0,229,153,.2)' : 'rgba(255,69,96,.2)') + ';color:' + (props.ok ? '#00e599' : '#ff4560') + ';">' +
+            (props.ok ? 'Opérationnel' : 'Hors service') +
+          '</span>'
+        )
+        .addTo(map);
+    });
+    map.on('mouseenter', 'sites-circles', function () { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'sites-circles', function () { map.getCanvas().style.cursor = ''; });
+
+    // ── Abonnés ──
+    if (subsData.features && subsData.features.length) {
+      map.addSource('subscribers', { type: 'geojson', data: subsData });
+      map.addLayer({
+        id: 'subscribers-circles',
+        type: 'circle',
+        source: 'subscribers',
+        paint: {
+          'circle-radius': 7,
+          'circle-color': [
+            'match', ['get', 'status'],
+            'actif',    '#06B6D4',
+            'suspendu', '#F59E0B',
+            'expire',   '#EF4444',
+            '#94A3B8'
+          ],
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': '#060D1A',
+          'circle-opacity': 0.8
+        }
+      });
+      map.on('click', 'subscribers-circles', function (e) {
+        var props = e.features[0].properties;
+        new mapboxgl.Popup({ closeButton: false, offset: 10 })
+          .setLngLat(e.features[0].geometry.coordinates)
+          .setHTML(
+            '<div class="popup-title">' + esc(props.name) + '</div>' +
+            '<div class="popup-sub">' + esc(props.plan || '') + ' · exp. ' + esc(props.expires_at) + '</div>' +
+            '<a href="/wifi/abonnes/' + props.pk + '/" style="display:inline-block;margin-top:8px;font-size:12px;color:#06B6D4;">Voir le profil →</a>'
+          )
+          .addTo(map);
+      });
+      map.on('mouseenter', 'subscribers-circles', function () { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', 'subscribers-circles', function () { map.getCanvas().style.cursor = ''; });
     }
+
+    // Auto-fit bounds
+    var allCoords = [];
+    (sitesData.features || []).forEach(function (f) {
+      if (f.geometry && f.geometry.type === 'Point') allCoords.push(f.geometry.coordinates);
+    });
+    if (allCoords.length >= 2) {
+      var bounds = allCoords.reduce(function (b, c) { return b.extend(c); }, new mapboxgl.LngLatBounds(allCoords[0], allCoords[0]));
+      map.fitBounds(bounds, { padding: 60, maxZoom: 13 });
+    }
+
+    // Auto-start rotation after all layers are loaded
+    startRotation();
+  });
+
+  function esc(v) {
+    if (v === null || v === undefined) return '';
+    return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initMap);
-  else initMap();
 })();
+
+// ── Rotation automatique (global scope pour onclick) ──────────────────────
+var _rotating = false;
+var _rotateAnim = null;
+
+function startRotation() {
+  if (!map) return;
+  _rotating = true;
+  var btn = document.getElementById('toggle-rotate');
+  if (btn) btn.style.color = 'var(--primary)';
+  (function rotateTick() {
+    if (!_rotating) return;
+    map.setBearing((map.getBearing() + 0.15) % 360);
+    _rotateAnim = requestAnimationFrame(rotateTick);
+  })();
+}
+
+function stopRotation() {
+  _rotating = false;
+  if (_rotateAnim) { cancelAnimationFrame(_rotateAnim); _rotateAnim = null; }
+  var btn = document.getElementById('toggle-rotate');
+  if (btn) btn.style.color = '';
+}
+
+function toggleRotation() {
+  if (_rotating) stopRotation(); else startRotation();
+}
+
+// Stop rotation on user interaction
+document.addEventListener('DOMContentLoaded', function() {
+  var canvas = map && map.getCanvas();
+  if (!canvas) return;
+  ['mousedown','touchstart','wheel'].forEach(function(evt) {
+    canvas.addEventListener(evt, function() { if (_rotating) stopRotation(); }, { passive: true });
+  });
+});
+
+// ── Layer toggle ──────────────────────────────────────────────────────────
+function toggleLayer(layerId, btnId) {
+  if (!map) return;
+  var current = map.getLayoutProperty(layerId, 'visibility') || 'visible';
+  var next = current === 'visible' ? 'none' : 'visible';
+  try { map.setLayoutProperty(layerId, 'visibility', next); } catch(e) { return; }
+  var btn = document.getElementById(btnId);
+  if (btn) {
+    if (next === 'none') { btn.classList.remove('layer-on'); btn.classList.add('layer-off'); }
+    else { btn.classList.add('layer-on'); btn.classList.remove('layer-off'); }
+  }
+}
 </script>
+{% endif %}
 {% endblock %}

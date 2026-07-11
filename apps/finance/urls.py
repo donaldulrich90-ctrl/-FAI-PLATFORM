@@ -16,4 +16,5 @@ urlpatterns = [
     path("rapports/revendeurs/<int:pk>/", views.revendeur_report_detail, name="revendeur_report_detail"),
     path("rapports/revendeurs/<int:pk>/export/excel/", views.revendeur_report_export_excel, name="revendeur_report_export_excel"),
     path("rapports/caisse/export/csv/", views.caisse_export_csv, name="caisse_export_csv"),
+    path("finance/", views.finance_dashboard, name="finance_dashboard"),
 ]

@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Clients connectés{% endblock %}
+{% block breadcrumb %}Wi-Fi / Clients connectés{% endblock %}
+
+{% block content %}
+<div class="page-header anim-up" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+  <div>
+    <h1 class="page-title">Clients connectés</h1>
+    <p class="page-sub">Sessions hotspot actives en temps réel — actualisation automatique toutes les 60 s.</p>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;">
+    <span id="count-badge" class="badge badge-cyan">…</span>
+    <button id="btn-refresh" class="btn btn-ghost btn-sm" onclick="loadSessions()">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+      Actualiser
+    </button>
+  </div>
+</div>
+
+<!-- Filtre site -->
+<div class="card anim-up-1" style="padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+  <label style="font-size:13px;color:var(--dim);font-weight:600;">Filtrer par site :</label>
+  <select id="site-filter" onchange="loadSessions()" style="width:auto!important;min-width:180px;padding:8px 12px!important;font-size:13px!important;">
+    <option value="">Tous les sites</option>
+    {% for site in sites %}
+    <option value="{{ site.site_id }}" {% if selected_site_id == site.site_id %}selected{% endif %}>{{ site.name }}</option>
+    {% endfor %}
+  </select>
+  <span id="last-refresh" style="font-size:12px;color:var(--muted);margin-left:auto;"></span>
+</div>
+
+<!-- Tableau sessions -->
+<div class="card anim-up-2" style="overflow:hidden;padding:0;">
+  <div id="loading" style="padding:48px;text-align:center;color:var(--muted);">
+    <div style="display:inline-block;width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;"></div>
+    <p style="margin-top:10px;font-size:13px;">Chargement des sessions…</p>
+  </div>
+  <div id="table-wrap" style="display:none;">
+    <div style="overflow-x:auto;">
+      <table class="tbl" id="sessions-table">
+        <thead>
+          <tr>
+            <th style="text-align:left;">Utilisateur</th>
+            <th style="text-align:left;">MAC</th>
+            <th style="text-align:left;">IP</th>
+            <th style="text-align:left;">Site</th>
+            <th style="text-align:left;">Routeur</th>
+            <th style="text-align:right;">Uptime</th>
+            <th style="text-align:right;">Upload</th>
+            <th style="text-align:right;">Download</th>
+            <th style="text-align:center;">Action</th>
+          </tr>
+        </thead>
+        <tbody id="sessions-body"></tbody>
+      </table>
+    </div>
+    <div id="empty-state" class="empty-state" style="display:none;">
+      <svg width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/></svg>
+      <p>Aucun client connecté.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Modal confirmation déconnexion -->
+<div id="modal-disconnect" style="display:none;position:fixed;inset:0;z-index:200;align-items:center;justify-content:center;">
+  <div style="position:absolute;inset:0;background:rgba(0,0,0,.6);" onclick="closeModal()"></div>
+  <div class="card" style="position:relative;z-index:201;width:380px;max-width:90vw;padding:28px;">
+    <h3 style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px;">Confirmer la déconnexion</h3>
+    <p style="font-size:14px;color:var(--dim);margin-bottom:20px;">Déconnecter <strong id="modal-username" style="color:var(--text);"></strong> du hotspot ?</p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-danger btn-sm" id="modal-confirm-btn" onclick="confirmDisconnect()">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+        Déconnecter
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const API_URL = "{% url 'wifi_zone:clients_api' %}";
+const DISCONNECT_URL = "{% url 'wifi_zone:client_disconnect' %}";
+const CSRF_TOKEN = "{{ csrf_token }}";
+let _pendingDisconnect = null;
+let _refreshTimer = null;
+
+function getSiteFilter() {
+  return document.getElementById('site-filter').value;
+}
+
+async function loadSessions() {
+  clearTimeout(_refreshTimer);
+  const site = getSiteFilter();
+  const url = API_URL + (site ? '?site=' + encodeURIComponent(site) : '');
+
+  try {
+    const resp = await fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}});
+    const data = await resp.json();
+    renderTable(data.sessions || []);
+    document.getElementById('count-badge').textContent = (data.count || 0) + ' connecté' + (data.count > 1 ? 's' : '');
+    document.getElementById('last-refresh').textContent = 'Mis à jour : ' + new Date().toLocaleTimeString('fr-FR');
+  } catch(e) {
+    document.getElementById('sessions-body').innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--red);padding:24px;">Erreur de chargement</td></tr>';
+  }
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('table-wrap').style.display = 'block';
+  _refreshTimer = setTimeout(loadSessions, 60000);
+}
+
+function renderTable(sessions) {
+  const tbody = document.getElementById('sessions-body');
+  const empty = document.getElementById('empty-state');
+  if (!sessions.length) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  tbody.innerHTML = sessions.map(s => `
+    <tr style="cursor:pointer;" onclick="window.location.href='${s.user ? '/wifi/clients/' + encodeURIComponent(s.user) + '/' : '#'}'">
+      <td><span style="font-weight:600;color:var(--primary);">${esc(s.user)}</span></td>
+      <td class="mono" style="font-size:12px;color:var(--dim);">${esc(s.mac)}</td>
+      <td class="mono" style="color:var(--green);">${esc(s.ip)}</td>
+      <td><span class="badge badge-slate">${esc(s.site_id)}</span> <span style="font-size:12px;color:var(--muted);">${esc(s.site_name)}</span></td>
+      <td style="color:var(--dim);font-size:13px;">${esc(s.device_name)}</td>
+      <td style="text-align:right;" class="mono">${esc(s.uptime)}</td>
+      <td style="text-align:right;" class="mono">${esc(s.bytes_in)}</td>
+      <td style="text-align:right;" class="mono">${esc(s.bytes_out)}</td>
+      <td style="text-align:center;" onclick="event.stopPropagation()">
+        <button class="btn btn-danger btn-sm" onclick="askDisconnect('${esc(s.device_pk)}','${esc(s.session_id)}','${esc(s.user)}')">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          Couper
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function esc(v) {
+  if (v === null || v === undefined) return '—';
+  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function askDisconnect(device_pk, session_id, username) {
+  _pendingDisconnect = {device_pk, session_id, username};
+  document.getElementById('modal-username').textContent = username;
+  document.getElementById('modal-disconnect').style.display = 'flex';
+}
+
+function closeModal() {
+  document.getElementById('modal-disconnect').style.display = 'none';
+  _pendingDisconnect = null;
+}
+
+async function confirmDisconnect() {
+  if (!_pendingDisconnect) return;
+  const btn = document.getElementById('modal-confirm-btn');
+  btn.disabled = true;
+  btn.textContent = 'En cours…';
+
+  const fd = new FormData();
+  fd.append('device_pk', _pendingDisconnect.device_pk);
+  fd.append('session_id', _pendingDisconnect.session_id);
+  fd.append('username', _pendingDisconnect.username);
+  fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+  try {
+    const resp = await fetch(DISCONNECT_URL, {method:'POST', body: fd});
+    const data = await resp.json();
+    closeModal();
+    if (data.ok) {
+      loadSessions();
+    } else {
+      alert('Erreur : ' + (data.error || 'Déconnexion échouée.'));
+    }
+  } catch(e) {
+    alert('Erreur réseau.');
+  }
+  btn.disabled = false;
+}
+
+document.addEventListener('DOMContentLoaded', loadSessions);
+</script>
+{% endblock %}

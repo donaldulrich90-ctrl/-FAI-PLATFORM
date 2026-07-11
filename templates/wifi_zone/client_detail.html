@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Client : {{ username }}{% endblock %}
+{% block breadcrumb %}Wi-Fi / Clients / {{ username }}{% endblock %}
+
+{% block content %}
+<div class="page-header anim-up" style="display:flex;align-items:center;gap:14px;">
+  <a href="{% url 'wifi_zone:clients_list' %}" class="btn btn-ghost btn-sm">
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+    Retour
+  </a>
+  <div>
+    <h1 class="page-title">{{ username }}</h1>
+    <p class="page-sub">Historique des tickets et actions d'audit.</p>
+  </div>
+</div>
+
+<!-- Tickets -->
+<div class="card anim-up-1" style="overflow:hidden;padding:0;margin-bottom:24px;">
+  <div class="section-head" style="padding:18px 22px 0;">
+    <h2>Tickets associés</h2>
+    <span class="badge badge-cyan">{{ tickets|length }}</span>
+  </div>
+  {% if tickets %}
+  <div style="overflow-x:auto;margin-top:4px;">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Site</th>
+          <th>Durée</th>
+          <th style="text-align:right;">Prix (XOF)</th>
+          <th>Statut</th>
+          <th>Créé le</th>
+          <th>Utilisé le</th>
+          <th>Vendeur</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tickets %}
+        <tr>
+          <td class="mono" style="font-weight:600;color:var(--primary);">{{ t.code }}</td>
+          <td style="color:var(--dim);">{{ t.site.name }}</td>
+          <td>{{ t.get_duration_display }}</td>
+          <td style="text-align:right;" class="mono">{{ t.price_xof|floatformat:0 }}</td>
+          <td>
+            {% if t.status == 'available' %}<span class="badge badge-green">Disponible</span>
+            {% elif t.status == 'used' %}<span class="badge badge-blue">Utilisé</span>
+            {% else %}<span class="badge badge-amber">Expiré</span>{% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--muted);">{{ t.created_at|date:"d/m/Y H:i" }}</td>
+          <td style="font-size:12px;color:var(--muted);">{{ t.used_at|date:"d/m/Y H:i"|default:"—" }}</td>
+          <td style="font-size:12px;color:var(--muted);">{{ t.sold_by.get_full_name|default:t.sold_by.username|default:"—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state" style="padding:32px;">
+    <p>Aucun ticket trouvé pour cet identifiant.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Audit logs -->
+<div class="card anim-up-2" style="overflow:hidden;padding:0;">
+  <div class="section-head" style="padding:18px 22px 0;">
+    <h2>Journal d'audit</h2>
+    <span class="badge badge-slate">{{ audit_logs|length }} entrées</span>
+  </div>
+  {% if audit_logs %}
+  <div style="overflow-x:auto;margin-top:4px;">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Action</th>
+          <th>Équipement</th>
+          <th>Par</th>
+          <th style="text-align:center;">Statut</th>
+          <th>Détail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in audit_logs %}
+        <tr>
+          <td style="font-size:12px;color:var(--muted);white-space:nowrap;">{{ log.created_at|date:"d/m/Y H:i" }}</td>
+          <td><span class="badge badge-cyan">{{ log.get_action_display }}</span>{% if log.dry_run %}<span class="badge badge-amber" style="font-size:10px;margin-left:6px;">TEST</span>{% endif %}</td>
+          <td style="color:var(--dim);">{{ log.device.name|default:"—" }}</td>
+          <td style="color:var(--dim);">{{ log.performed_by.get_full_name|default:log.performed_by.username|default:"Système" }}</td>
+          <td style="text-align:center;">
+            {% if log.success %}<span class="badge badge-green">OK</span>
+            {% else %}<span class="badge badge-red">Erreur</span>{% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ log.error_message }}">
+            {{ log.error_message|default:log.command_sent|truncatechars:60 }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state" style="padding:32px;">
+    <p>Aucune action d'audit enregistrée.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

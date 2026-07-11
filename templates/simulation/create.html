@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Nouvelle simulation — Faso ISP Manager{% endblock %}
+{% block breadcrumb %}Nouvelle simulation{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Nouvelle simulation</h1>
+</div>
+<div class="card" style="max-width:480px;padding:28px;">
+  <form method="post">
+    {% csrf_token %}
+    <label style="display:block;font-size:13px;font-weight:600;color:var(--dim);margin-bottom:6px;">Nom de la simulation</label>
+    <input name="name" type="text" autofocus required
+           placeholder="Ex. Déploiement secteur Nord"
+           style="width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px 14px;font-size:14px;margin-bottom:18px;">
+    <button type="submit" class="btn btn-primary btn-md" style="width:100%;">Créer et ouvrir</button>
+  </form>
+</div>
+{% endblock %}

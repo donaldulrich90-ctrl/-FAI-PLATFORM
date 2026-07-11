@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Tickets Plainte{% endblock %}
+{% block breadcrumb %}Tickets Plainte{% endblock %}
+
+{% block extra_head %}
+<style>
+  .prio-haute   { background:rgba(239,68,68,.15);  color:#EF4444; }
+  .prio-moyenne { background:rgba(245,158,11,.15); color:#F59E0B; }
+  .prio-basse   { background:rgba(16,185,129,.15); color:#10B981; }
+  .stat-nou { background:rgba(6,182,212,.15);   color:#06B6D4; }
+  .stat-enc { background:rgba(201,151,44,.15);  color:#C9972C; }
+  .stat-res { background:rgba(16,185,129,.15);  color:#10B981; }
+  .stat-fer { background:rgba(148,163,184,.15); color:#94A3B8; }
+
+  /* Kanban */
+  .kanban-board { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
+  @media(max-width:900px) { .kanban-board { grid-template-columns:repeat(2,1fr); } }
+  @media(max-width:560px) { .kanban-board { grid-template-columns:1fr; } }
+  .kanban-col { background:rgba(255,255,255,.03); border:1px solid var(--border); border-radius:14px; padding:14px; min-height:200px; }
+  .kanban-col-header { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; }
+  .kanban-card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:10px; cursor:pointer; transition:border-color .15s; }
+  .kanban-card:hover { border-color:var(--borderh); }
+
+  /* Action modal */
+  .modal-overlay { display:none; position:fixed; inset:0; z-index:200; align-items:center; justify-content:center; }
+  .modal-overlay.open { display:flex; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header anim-up" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+  <div>
+    <h1 class="page-title">Tickets Plainte</h1>
+    <p class="page-sub">Gestion des demandes et plaintes reçues.</p>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;">
+    <a href="?{% if status_filter %}status={{ status_filter }}&{% endif %}{% if priority_filter %}priority={{ priority_filter }}&{% endif %}view={% if view_mode == 'kanban' %}list{% else %}kanban{% endif %}" class="btn btn-ghost btn-sm">
+      {% if view_mode == 'kanban' %}
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+      Vue liste
+      {% else %}
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Vue kanban
+      {% endif %}
+    </a>
+  </div>
+</div>
+
+<!-- Compteurs -->
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:22px;" class="anim-up-1">
+  <div class="card" style="padding:18px 22px;display:flex;align-items:center;gap:14px;">
+    <div class="icon-box" style="background:rgba(6,182,212,.1);">
+      <svg width="16" height="16" fill="none" stroke="#06B6D4" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+    </div>
+    <div>
+      <p class="stat-label">Nouveaux</p>
+      <p class="stat-value" style="color:#06B6D4;">{{ counts.nouveau }}</p>
+    </div>
+  </div>
+  <div class="card" style="padding:18px 22px;display:flex;align-items:center;gap:14px;">
+    <div class="icon-box" style="background:rgba(201,151,44,.1);">
+      <svg width="16" height="16" fill="none" stroke="var(--primary)" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    </div>
+    <div>
+      <p class="stat-label">En cours</p>
+      <p class="stat-value" style="color:var(--primary);">{{ counts.en_cours }}</p>
+    </div>
+  </div>
+  <div class="card" style="padding:18px 22px;display:flex;align-items:center;gap:14px;">
+    <div class="icon-box" style="background:rgba(16,185,129,.1);">
+      <svg width="16" height="16" fill="none" stroke="var(--green)" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    </div>
+    <div>
+      <p class="stat-label">Résolus</p>
+      <p class="stat-value" style="color:var(--green);">{{ counts.resolu }}</p>
+    </div>
+  </div>
+</div>
+
+<!-- Filtres -->
+<form method="get" class="card anim-up-2" style="padding:14px 20px;margin-bottom:20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+  <input type="hidden" name="view" value="{{ view_mode }}">
+  <select name="status" style="width:auto!important;min-width:150px;">
+    <option value="">Tous les statuts</option>
+    {% for val,label in status_choices %}
+    <option value="{{ val }}" {% if status_filter == val %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <select name="priority" style="width:auto!important;min-width:150px;">
+    <option value="">Toutes priorités</option>
+    {% for val,label in priority_choices %}
+    <option value="{{ val }}" {% if priority_filter == val %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
+  {% if status_filter or priority_filter %}
+  <a href="?view={{ view_mode }}" class="btn btn-ghost btn-sm">Réinitialiser</a>
+  {% endif %}
+</form>
+
+{% if view_mode == 'kanban' %}
+<!-- VUE KANBAN -->
+<div class="kanban-board anim-up-3">
+  {% for col in kanban_columns %}
+  <div class="kanban-col">
+    <div class="kanban-col-header">
+      <span>{{ col.label }}</span>
+      <span class="badge {% if col.status == 'nouveau' %}stat-nou{% elif col.status == 'en_cours' %}stat-enc{% elif col.status == 'resolu' %}stat-res{% else %}stat-fer{% endif %}" style="font-size:11px;">{{ col.tickets|length }}</span>
+    </div>
+    {% for t in col.tickets %}
+    <div class="kanban-card" onclick="openTicketModal({{ t.pk }}, '{{ t.reference|escapejs }}', '{{ t.status }}', '{{ t.priority }}', '{{ t.message_original|escapejs|truncatechars:120 }}', '{{ t.subscriber.full_name|default:t.phone_from|escapejs }}')">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px;">
+        <span class="mono" style="font-size:11px;font-weight:700;color:var(--primary);">{{ t.reference }}</span>
+        <span class="badge prio-{{ t.priority }}" style="font-size:10px;padding:2px 8px;">{{ t.get_priority_display }}</span>
+      </div>
+      <p style="font-size:12px;color:var(--text);margin-bottom:6px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">{{ t.message_original|truncatechars:100 }}</p>
+      <p style="font-size:11px;color:var(--muted);">{{ t.created_at|date:"d/m H:i" }}{% if t.subscriber %} · {{ t.subscriber.full_name }}{% endif %}</p>
+    </div>
+    {% empty %}
+    <p style="font-size:12px;color:var(--muted);text-align:center;padding:20px 0;">Vide</p>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<!-- VUE LISTE -->
+<div class="card anim-up-3" style="overflow:hidden;padding:0;">
+  <div style="overflow-x:auto;">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Référence</th>
+          <th>Abonné / Tél</th>
+          <th>Priorité</th>
+          <th>Statut</th>
+          <th>Message</th>
+          <th>Date</th>
+          <th style="text-align:center;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tickets %}
+        <tr>
+          <td class="mono" style="font-size:12px;font-weight:700;color:var(--primary);">{{ t.reference }}</td>
+          <td>
+            <p style="font-size:13px;color:var(--text);">{% if t.subscriber %}{{ t.subscriber.full_name }}{% else %}{{ t.phone_from|default:"—" }}{% endif %}</p>
+            <p class="mono" style="font-size:11px;color:var(--muted);">{{ t.phone_from|default:"" }}</p>
+          </td>
+          <td><span class="badge prio-{{ t.priority }}" style="font-size:11px;">{{ t.get_priority_display }}</span></td>
+          <td>
+            <span class="badge {% if t.status == 'nouveau' %}stat-nou{% elif t.status == 'en_cours' %}stat-enc{% elif t.status == 'resolu' %}stat-res{% else %}stat-fer{% endif %}" style="font-size:11px;">{{ t.get_status_display }}</span>
+          </td>
+          <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim);font-size:13px;">{{ t.message_original|truncatechars:90 }}</td>
+          <td style="color:var(--muted);font-size:12px;">{{ t.created_at|date:"d/m H:i" }}</td>
+          <td style="text-align:center;">
+            <button class="btn btn-ghost btn-sm" style="padding:5px 10px;" onclick="openTicketModal({{ t.pk }}, '{{ t.reference|escapejs }}', '{{ t.status }}', '{{ t.priority }}', '{{ t.message_original|escapejs|truncatechars:300 }}', '{{ t.subscriber.full_name|default:t.phone_from|escapejs }}')">
+              Gérer
+            </button>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7">
+            <div class="empty-state" style="padding:40px 0;">
+              <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+              <p>Aucun ticket.</p>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Modal gestion ticket -->
+<div id="ticket-modal" class="modal-overlay" onclick="if(event.target===this)closeTicketModal()">
+  <div class="card" style="position:relative;z-index:201;width:480px;max-width:95vw;padding:28px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 style="font-size:16px;font-weight:700;color:var(--text);" id="modal-title">Ticket</h3>
+      <button class="btn btn-ghost btn-sm" onclick="closeTicketModal()">✕</button>
+    </div>
+    <p id="modal-message" style="font-size:13px;color:var(--dim);background:rgba(0,0,0,.2);border-radius:8px;padding:12px 14px;margin-bottom:16px;line-height:1.6;"></p>
+
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div>
+        <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px;">Changer le statut</label>
+        <select id="modal-status" style="width:100%!important;">
+          <option value="nouveau">Nouveau</option>
+          <option value="en_cours">En cours</option>
+          <option value="resolu">Résolu</option>
+          <option value="ferme">Fermé</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px;">Notes de résolution</label>
+        <textarea id="modal-notes" style="width:100%;resize:vertical;" rows="3" placeholder="Notes internes…"></textarea>
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px;">Répondre par WhatsApp</label>
+        <div style="display:flex;gap:8px;">
+          <input id="modal-reply" type="text" placeholder="Message à envoyer…" style="flex:1;">
+          <button class="btn btn-ghost btn-sm" onclick="sendReply()">Envoyer</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">
+      <button class="btn btn-ghost btn-sm" onclick="closeTicketModal()">Annuler</button>
+      <button class="btn btn-primary btn-sm" onclick="saveTicket()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let _currentTicketPk = null;
+const CSRF = getCsrf();
+
+function openTicketModal(pk, ref, status, priority, message, name) {
+  _currentTicketPk = pk;
+  document.getElementById('modal-title').textContent = ref + (name ? ' · ' + name : '');
+  document.getElementById('modal-message').textContent = message;
+  document.getElementById('modal-status').value = status;
+  document.getElementById('modal-notes').value = '';
+  document.getElementById('modal-reply').value = '';
+  document.getElementById('ticket-modal').classList.add('open');
+}
+
+function closeTicketModal() {
+  document.getElementById('ticket-modal').classList.remove('open');
+  _currentTicketPk = null;
+}
+
+async function saveTicket() {
+  if (!_currentTicketPk) return;
+  const fd = new FormData();
+  fd.append('status', document.getElementById('modal-status').value);
+  fd.append('resolution_notes', document.getElementById('modal-notes').value);
+  fd.append('csrfmiddlewaretoken', CSRF);
+  try {
+    const r = await fetch('/wifi/tickets/' + _currentTicketPk + '/update/', {method:'POST', body:fd});
+    const d = await r.json();
+    if (d.ok) {
+      showToast('Ticket ' + (d.reference||'') + ' mis à jour.', 'success');
+      closeTicketModal();
+      setTimeout(() => location.reload(), 900);
+    } else {
+      showToast('Erreur lors de la mise à jour.', 'error');
+    }
+  } catch(e) { showToast('Erreur réseau.', 'error'); }
+}
+
+async function sendReply() {
+  if (!_currentTicketPk) return;
+  const msg = document.getElementById('modal-reply').value.trim();
+  if (!msg) { showToast('Message vide.', 'error'); return; }
+  const fd = new FormData();
+  fd.append('message', msg);
+  fd.append('csrfmiddlewaretoken', CSRF);
+  try {
+    const r = await fetch('/wifi/tickets/' + _currentTicketPk + '/reply/', {method:'POST', body:fd});
+    const d = await r.json();
+    if (d.ok) {
+      showToast('Réponse WhatsApp envoyée.', 'success');
+      document.getElementById('modal-reply').value = '';
+    } else {
+      showToast('Erreur : ' + (d.error||'inconnue'), 'error');
+    }
+  } catch(e) { showToast('Erreur réseau.', 'error'); }
+}
+</script>
+{% endblock %}

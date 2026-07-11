@@ -14,6 +14,7 @@ urlpatterns = [
     path("wifi/", include("apps.wifi_zone.urls", namespace="wifi_zone")),
     path("", include("apps.finance.urls", namespace="finance")),
     path("", include("apps.monitoring.urls", namespace="monitoring")),
+    path("simulation/", include("apps.simulation.urls", namespace="simulation")),
 ]
 
 admin.site.site_header = "Faso ISP Manager"

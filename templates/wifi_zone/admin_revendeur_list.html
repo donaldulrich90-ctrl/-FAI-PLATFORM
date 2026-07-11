@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Gestion revendeurs{% endblock %}
+{% block breadcrumb %}Wi-Fi / Admin Revendeurs{% endblock %}
+
+{% block content %}
+<div class="page-header anim-up" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+  <div>
+    <h1 class="page-title">Revendeurs</h1>
+    <p class="page-sub">Statistiques de vente et commissions dues.</p>
+  </div>
+  <a href="/admin/accounts/user/add/" class="btn btn-primary btn-sm no-print">
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+    Nouveau revendeur
+  </a>
+</div>
+
+{% if revendeurs %}
+<div class="card anim-up-1" style="overflow:hidden;padding:0;">
+  <div style="overflow-x:auto;">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th style="text-align:left;">Revendeur</th>
+          <th style="text-align:left;">Préfixe</th>
+          <th style="text-align:left;">Site</th>
+          <th style="text-align:right;">Tickets vendus</th>
+          <th style="text-align:right;">CA brut (XOF)</th>
+          <th style="text-align:right;">Commission due (XOF)</th>
+          <th style="text-align:right;">Solde (XOF)</th>
+          <th style="text-align:center;">Statut</th>
+          <th style="text-align:center;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rev in revendeurs %}
+        <tr>
+          <td>
+            <div style="font-weight:600;color:var(--text);">{{ rev.user.get_full_name|default:rev.user.username }}</div>
+            <div style="font-size:12px;color:var(--muted);">{{ rev.user.phone|default:"—" }}</div>
+          </td>
+          <td><span class="badge badge-cyan mono">{{ rev.user.ticket_prefix|default:"—" }}</span></td>
+          <td style="color:var(--dim);">{{ rev.user.site.name|default:"—" }}</td>
+          <td style="text-align:right;" class="mono">{{ rev.nb_tickets }}</td>
+          <td style="text-align:right;" class="mono">{{ rev.ca_xof|floatformat:0 }}</td>
+          <td style="text-align:right;" class="mono" style="color:var(--amber);">{{ rev.commission_xof|floatformat:0 }}</td>
+          <td style="text-align:right;" class="mono">{{ rev.user.balance_xof|floatformat:0 }}</td>
+          <td style="text-align:center;">
+            {% if rev.user.is_active %}
+            <span class="badge badge-green">Actif</span>
+            {% else %}
+            <span class="badge badge-red">Inactif</span>
+            {% endif %}
+          </td>
+          <td style="text-align:center;">
+            <a href="/admin/accounts/user/{{ rev.user.pk }}/change/" class="btn btn-ghost btn-sm">Modifier</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card anim-up-1" style="padding:0;">
+  <div class="empty-state">
+    <svg width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+    <p>Aucun revendeur enregistré.</p>
+    <a href="/admin/accounts/user/add/" class="btn btn-primary btn-sm" style="margin-top:14px;">Créer un revendeur</a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

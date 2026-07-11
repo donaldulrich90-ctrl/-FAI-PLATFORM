@@ -33,6 +33,13 @@ SCHEDULES = [
         "cron": "*/30 * * * *",  # toutes les 30 minutes
         "repeats": -1,
     },
+    {
+        "name": "Surveillance fréquences Ubiquiti",
+        "func": "apps.monitoring.tasks.monitor_frequencies",
+        "schedule_type": "C",
+        "cron": "*/5 * * * *",  # toutes les 5 minutes
+        "repeats": -1,
+    },
 ]
 
 

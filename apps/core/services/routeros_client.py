@@ -254,6 +254,108 @@ class RouterOSClient:
                 users.add(m.group(1))
         return users
 
+    def hotspot_active_details(self) -> list[dict]:
+        """Retourne les sessions actives avec détails complets (user, IP, MAC, uptime, bytes)."""
+        if self._mode == "dry_run":
+            return []
+
+        if self._mode == "api":
+            try:
+                rows = self._api("/ip/hotspot/active/print")
+                return [dict(r) for r in rows]
+            except Exception as exc:
+                logger.warning("hotspot_active_details API: %s", exc)
+                return []
+
+        rc, out, _ = self._ssh_exec(
+            "/ip hotspot active print terse proplist=.id,user,address,mac-address,uptime,bytes-in,bytes-out,server"
+        )
+        if rc != 0:
+            return []
+        entries: list[dict] = []
+        for line in out.splitlines():
+            entry: dict = {}
+            for key in (".id", "user", "address", "mac-address", "uptime", "bytes-in", "bytes-out", "server"):
+                m = re.search(rf"(?:^|\s){re.escape(key)}=(\S+)", line)
+                if m:
+                    entry[key] = m.group(1)
+            if "user" in entry:
+                entries.append(entry)
+        return entries
+
+    def hotspot_active_remove_by_id(self, session_id: str) -> bool:
+        """Déconnecte une session hotspot active par son identifiant RouterOS (.id)."""
+        if self._mode == "dry_run":
+            logger.info(
+                "[DRY-RUN] hotspot_active_remove_by_id session=%s on %s",
+                session_id,
+                self.device.management_host,
+            )
+            return True
+
+        if self._mode == "api":
+            try:
+                self._api("/ip/hotspot/active/remove", **{".id": session_id})
+                return True
+            except Exception as exc:
+                logger.warning(
+                    "hotspot_active_remove_by_id API session=%s: %s", session_id, exc
+                )
+                return False
+
+        safe_id = re.sub(r"[^a-zA-Z0-9*]", "", session_id)
+        rc, out, err = self._ssh_exec(f"/ip hotspot active remove {safe_id}")
+        return _ros_remove_ok(rc, out, err)
+
+    def hotspot_user_add(
+        self,
+        name: str,
+        password: str,
+        profile: str,
+        limit_uptime: str,
+        comment: str,
+        server: str = "",
+    ) -> tuple[bool, str]:
+        """Crée un utilisateur hotspot sans suppression préalable (pour lots revendeurs)."""
+        if self._mode == "dry_run":
+            logger.info(
+                "[DRY-RUN] hotspot_user_add name=%s on %s",
+                name,
+                self.device.management_host,
+            )
+            return True, ""
+
+        if self._mode == "api":
+            try:
+                kwargs: dict = {
+                    "name": name,
+                    "password": password,
+                    "profile": profile,
+                    "limit-uptime": limit_uptime,
+                    "comment": comment,
+                }
+                if server:
+                    kwargs["server"] = server
+                self._api("/ip/hotspot/user/add", **kwargs)
+                return True, ""
+            except Exception as exc:
+                msg = str(exc)[:500]
+                logger.error("hotspot_user_add API %s: %s", name, msg)
+                return False, msg
+
+        server_arg = f" server={server}" if server else ""
+        cmd = (
+            f'/ip hotspot user add name="{name}" password="{password}" '
+            f"profile={profile} limit-uptime={limit_uptime}{server_arg} "
+            f'comment="{comment}"'
+        )
+        rc, out, err = self._ssh_exec(cmd)
+        if rc != 0:
+            msg = (err or out or "erreur SSH").strip()[:500]
+            logger.error("hotspot_user_add SSH %s rc=%s: %s", name, rc, msg)
+            return False, msg
+        return True, ""
+
     def hotspot_all_users(self) -> list[dict]:
         """Liste complète des utilisateurs hotspot provisionnés."""
         if self._mode == "dry_run":
@@ -283,6 +385,137 @@ class RouterOSClient:
             if "name" in entry:
                 entries.append(entry)
         return entries
+
+    # ── opérations bridge filter (blocage MAC) ────────────────────────────────
+
+    # ── address-list (abonnés domicile) ──────────────────────────────────────────
+
+    def address_list_add(self, address: str, list_name: str, comment: str) -> bool:
+        """Ajoute une adresse à une address-list (idempotent : retire d'abord)."""
+        if self._mode == "dry_run":
+            logger.info("[DRY-RUN] address_list_add %s → %s on %s", address, list_name, self.device.management_host)
+            return True
+        self.address_list_remove_by_comment(comment)
+        if self._mode == "api":
+            try:
+                self._api("/ip/firewall/address-list/add", address=address, list=list_name, comment=comment)
+                return True
+            except Exception as exc:
+                logger.error("address_list_add API %s→%s: %s", address, list_name, exc)
+                return False
+        cmd = f'/ip firewall address-list add address="{address}" list="{list_name}" comment="{comment}"'
+        rc, out, err = self._ssh_exec(cmd)
+        if rc != 0:
+            logger.error("address_list_add SSH rc=%s addr=%s: %s", rc, address, err)
+            return False
+        return True
+
+    def address_list_remove_by_comment(self, comment: str, list_name: str = "") -> bool:
+        """Supprime toutes les entrées d'address-list portant ce commentaire."""
+        if self._mode == "dry_run":
+            return True
+        if self._mode == "api":
+            try:
+                kwargs: dict = {"?comment": comment}
+                rows = self._api("/ip/firewall/address-list/print", **kwargs)
+                if list_name:
+                    rows = [r for r in rows if r.get("list") == list_name]
+                for row in rows:
+                    self._api("/ip/firewall/address-list/remove", **{".id": row[".id"]})
+                return True
+            except Exception as exc:
+                logger.warning("address_list_remove API comment=%s: %s", comment, exc)
+                return False
+        list_filter = f' and list="{list_name}"' if list_name else ""
+        rc, out, err = self._ssh_exec(
+            f'/ip firewall address-list remove [find comment="{comment}"{list_filter}]'
+        )
+        return _ros_remove_ok(rc, out, err)
+
+    def arp_add_static(self, ip: str, mac: str, interface: str, comment: str) -> bool:
+        """Ajoute/remplace une entrée ARP statique."""
+        if self._mode == "dry_run":
+            logger.info("[DRY-RUN] arp_add_static %s→%s on %s", ip, mac, self.device.management_host)
+            return True
+        self.arp_remove_by_comment(comment)
+        if self._mode == "api":
+            try:
+                self._api("/ip/arp/add", address=ip, **{"mac-address": mac}, interface=interface, comment=comment)
+                return True
+            except Exception as exc:
+                logger.error("arp_add_static API %s→%s: %s", ip, mac, exc)
+                return False
+        cmd = f'/ip arp add address="{ip}" mac-address="{mac}" interface="{interface}" comment="{comment}"'
+        rc, out, err = self._ssh_exec(cmd)
+        if rc != 0:
+            logger.error("arp_add_static SSH rc=%s: %s", rc, err)
+            return False
+        return True
+
+    def arp_remove_by_comment(self, comment: str) -> bool:
+        """Supprime les entrées ARP portant ce commentaire."""
+        if self._mode == "dry_run":
+            return True
+        if self._mode == "api":
+            try:
+                rows = self._api("/ip/arp/print", **{"?comment": comment})
+                for row in rows:
+                    self._api("/ip/arp/remove", **{".id": row[".id"]})
+                return True
+            except Exception as exc:
+                logger.warning("arp_remove_by_comment API: %s", exc)
+                return False
+        rc, out, err = self._ssh_exec(f'/ip arp remove [find comment="{comment}"]')
+        return _ros_remove_ok(rc, out, err)
+
+    def simple_queue_upsert(
+        self, name: str, target: str, max_down: str, max_up: str, comment: str
+    ) -> tuple[bool, str]:
+        """Crée ou met à jour un Simple Queue (QoS) pour l'IP cible."""
+        if self._mode == "dry_run":
+            logger.info("[DRY-RUN] simple_queue_upsert %s target=%s on %s", name, target, self.device.management_host)
+            return True, ""
+        self.simple_queue_remove_by_name(name)
+        if self._mode == "api":
+            try:
+                self._api(
+                    "/queue/simple/add",
+                    name=name,
+                    target=target,
+                    **{"max-limit": f"{max_up}/{max_down}"},
+                    comment=comment,
+                )
+                return True, ""
+            except Exception as exc:
+                msg = str(exc)[:500]
+                logger.error("simple_queue_upsert API %s: %s", name, msg)
+                return False, msg
+        cmd = (
+            f'/queue simple add name="{name}" target="{target}" '
+            f'max-limit="{max_up}/{max_down}" comment="{comment}"'
+        )
+        rc, out, err = self._ssh_exec(cmd)
+        if rc != 0:
+            msg = (err or out or "erreur SSH").strip()[:500]
+            logger.error("simple_queue_upsert SSH rc=%s %s: %s", rc, name, msg)
+            return False, msg
+        return True, ""
+
+    def simple_queue_remove_by_name(self, name: str) -> bool:
+        """Supprime un Simple Queue par son nom (silencieux si absent)."""
+        if self._mode == "dry_run":
+            return True
+        if self._mode == "api":
+            try:
+                rows = self._api("/queue/simple/print", **{"?name": name})
+                for row in rows:
+                    self._api("/queue/simple/remove", **{".id": row[".id"]})
+                return True
+            except Exception as exc:
+                logger.warning("simple_queue_remove API %s: %s", name, exc)
+                return False
+        rc, out, err = self._ssh_exec(f'/queue simple remove [find name="{name}"]')
+        return _ros_remove_ok(rc, out, err)
 
     # ── opérations bridge filter (blocage MAC) ────────────────────────────────
 

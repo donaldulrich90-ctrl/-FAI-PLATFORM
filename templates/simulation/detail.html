@@ -1,0 +1,952 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}{{ simulation.name }} — Simulation réseau{% endblock %}
+{% block breadcrumb %}{{ simulation.name }}{% endblock %}
+
+{% block extra_head %}
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet">
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+<style>
+  /* Full-screen map canvas covering the main area (right of sidebar) */
+  #sim-map {
+    position: fixed;
+    top: 56px; /* topbar height */
+    left: 256px;
+    right: 0;
+    bottom: 0;
+    z-index: 1;
+  }
+  @media(max-width:768px) { #sim-map { left: 0; top: 56px; } }
+
+  /* Side panel floating over the map */
+  #sim-panel {
+    position: fixed;
+    top: 72px;
+    right: 14px;
+    width: 310px;
+    max-height: calc(100vh - 86px);
+    overflow-y: auto;
+    background: rgba(6,13,26,.93);
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(30,41,59,.85);
+    border-radius: 14px;
+    z-index: 40;
+    padding: 0;
+    scrollbar-width: thin;
+  }
+  @media(max-width:768px) { #sim-panel { left: 8px; right: 8px; width: auto; } }
+
+  .panel-section {
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+  }
+  .panel-section:last-child { border-bottom: none; }
+  .panel-title {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .1em; color: var(--primary); margin-bottom: 10px;
+  }
+
+  /* Tool palette */
+  .tool-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--dim);
+    font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s;
+    margin: 3px 3px 0 0;
+  }
+  .tool-btn:hover { border-color: rgba(201,151,44,.4); color: var(--primary); background: rgba(201,151,44,.05); }
+  .tool-btn.active { border-color: var(--primary); color: var(--primary); background: rgba(201,151,44,.12); }
+
+  /* Form fields inside panel */
+  .sim-input {
+    width: 100%; background: rgba(255,255,255,.04); border: 1px solid var(--border);
+    color: var(--text); border-radius: 7px; padding: 7px 10px; font-size: 12px;
+    font-family: inherit; margin-bottom: 6px;
+  }
+  .sim-input:focus { outline: none; border-color: rgba(201,151,44,.4); }
+  .sim-label { font-size: 11px; color: var(--muted); margin-bottom: 3px; display: block; }
+  .sim-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 0; }
+
+  /* Result cards */
+  .result-card {
+    background: rgba(255,255,255,.03); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 6px;
+  }
+  .result-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .result-value { font-size: 18px; font-weight: 800; letter-spacing: -.5px; margin-top: 2px; }
+  .result-sub { font-size: 11px; color: var(--dim); margin-top: 2px; }
+
+  /* Signal quality colors */
+  .sig-excellent { color: #10B981; }
+  .sig-good      { color: #84CC16; }
+  .sig-fair      { color: #F59E0B; }
+  .sig-poor      { color: #EF4444; }
+
+  /* Hover popup on map */
+  .mapboxgl-popup-content {
+    background: rgba(6,13,26,.95) !important;
+    border: 1px solid rgba(201,151,44,.25) !important;
+    color: #F1F5F9 !important;
+    border-radius: 10px !important;
+    padding: 10px 14px !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 12px !important;
+  }
+  .mapboxgl-popup-tip { display: none !important; }
+  .mapboxgl-ctrl-group { background: rgba(6,13,26,.9) !important; border: 1px solid rgba(30,41,59,.8) !important; }
+  .mapboxgl-ctrl button { color: #F1F5F9 !important; }
+
+  /* Cursor modes */
+  #sim-map.cursor-crosshair { cursor: crosshair; }
+  #sim-map.cursor-default   { cursor: default; }
+
+  /* Element list */
+  .elem-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 7px; cursor: pointer;
+    transition: background .12s; font-size: 12px;
+  }
+  .elem-item:hover { background: rgba(255,255,255,.04); }
+  .elem-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .elem-dot-antenna { background: #C9972C; }
+  .elem-dot-cpe      { background: #06B6D4; }
+  .elem-dot-relay    { background: #10B981; }
+  .elem-dot-tower    { background: #8B5CF6; }
+
+  /* Toast */
+  #sim-toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: rgba(16,185,129,.9); color: #fff; padding: 9px 20px;
+    border-radius: 999px; font-size: 13px; font-weight: 600;
+    z-index: 999; opacity: 0; pointer-events: none; transition: opacity .25s;
+  }
+  #sim-toast.show { opacity: 1; }
+  #sim-toast.error { background: rgba(239,68,68,.9); }
+
+  /* Override main-wrap overflow for full-screen */
+  .main-wrap { overflow: hidden; }
+  .page-content { display: none; }
+  .topbar { z-index: 30; }
+</style>
+{% endblock %}
+
+{% block content %}{% endblock %}
+
+{% block extra_body %}
+<!-- Full-screen map -->
+<div id="sim-map" class="cursor-default"></div>
+
+<!-- Floating side panel -->
+<div id="sim-panel">
+
+  <!-- Header -->
+  <div class="panel-section" style="display:flex;align-items:center;justify-content:space-between;">
+    <div>
+      <div style="font-size:13px;font-weight:700;color:var(--text);" id="sim-name-display">{{ simulation.name }}</div>
+      <div style="font-size:11px;color:var(--dim);margin-top:1px;">Simulation réseau</div>
+    </div>
+    <div style="display:flex;gap:6px;">
+      <button class="btn btn-ghost btn-sm" onclick="saveSimulation()" id="btn-save" title="Sauvegarder">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
+      </button>
+      <a href="{% url 'simulation:simulation_list' %}" class="btn btn-ghost btn-sm" title="Retour à la liste">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+      </a>
+    </div>
+  </div>
+
+  <!-- Tool palette -->
+  <div class="panel-section">
+    <div class="panel-title">Outils</div>
+    <div>
+      <button class="tool-btn" id="tool-antenna" onclick="setTool('antenna')" title="Placer une antenne">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/></svg>
+        Antenne
+      </button>
+      <button class="tool-btn" id="tool-cpe" onclick="setTool('cpe')" title="Placer un CPE client">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+        CPE client
+      </button>
+      <button class="tool-btn" id="tool-tower" onclick="setTool('tower')" title="Placer un mât/tour">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="22"/><polyline points="17 7 12 2 7 7"/></svg>
+        Tour/Mât
+      </button>
+      <button class="tool-btn" id="tool-link" onclick="setTool('link')" title="Tracer un lien PtP/PtMP">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101"/><path stroke-linecap="round" stroke-linejoin="round" d="M10.172 13.828a4 4 0 015.656 0l4 4a4 4 0 01-5.656 5.656l-1.102-1.101"/></svg>
+        Lien PtP
+      </button>
+      <button class="tool-btn" id="tool-delete" onclick="setTool('delete')" title="Supprimer un élément">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path stroke-linecap="round" stroke-linejoin="round" d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+        Effacer
+      </button>
+    </div>
+  </div>
+
+  <!-- Antenna configuration form -->
+  <div class="panel-section" id="section-antenna-config" style="display:none;">
+    <div class="panel-title">Config antenne sectorielle</div>
+    <label class="sim-label">Libellé</label>
+    <input class="sim-input" id="cfg-label" type="text" placeholder="Ex. Tour-Nord-A">
+    <div class="sim-row">
+      <div>
+        <label class="sim-label">Fréquence (MHz)</label>
+        <select class="sim-input" id="cfg-freq">
+          <option value="5180">5180</option><option value="5200">5200</option>
+          <option value="5220">5220</option><option value="5240">5240</option>
+          <option value="5260">5260</option><option value="5280">5280</option>
+          <option value="5300">5300</option><option value="5320">5320</option>
+          <option value="5500">5500</option><option value="5520">5520</option>
+          <option value="5540">5540</option><option value="5560">5560</option>
+          <option value="5580">5580</option><option value="5600">5600</option>
+          <option value="5620">5620</option><option value="5640">5640</option>
+          <option value="5660">5660</option><option value="5680">5680</option>
+          <option value="5700">5700</option><option value="5720">5720</option>
+          <option value="5745">5745</option><option value="5765">5765</option>
+          <option value="5785">5785</option><option value="5805">5805</option>
+          <option value="5825" selected>5825</option>
+        </select>
+      </div>
+      <div>
+        <label class="sim-label">Largeur canal (MHz)</label>
+        <select class="sim-input" id="cfg-bw">
+          <option value="20">20</option><option value="40" selected>40</option>
+          <option value="80">80</option>
+        </select>
+      </div>
+    </div>
+    <div class="sim-row">
+      <div>
+        <label class="sim-label">Puissance TX (dBm)</label>
+        <input class="sim-input" id="cfg-power" type="number" value="23" min="5" max="30">
+      </div>
+      <div>
+        <label class="sim-label">Gain antenne (dBi)</label>
+        <input class="sim-input" id="cfg-gain" type="number" value="16" min="5" max="30">
+      </div>
+    </div>
+    <div class="sim-row">
+      <div>
+        <label class="sim-label">Azimut (°)</label>
+        <input class="sim-input" id="cfg-azimuth" type="number" value="0" min="0" max="359">
+      </div>
+      <div>
+        <label class="sim-label">Ouverture (°)</label>
+        <input class="sim-input" id="cfg-beamwidth" type="number" value="60" min="10" max="360">
+      </div>
+    </div>
+    <div class="sim-row">
+      <div>
+        <label class="sim-label">Hauteur (m)</label>
+        <input class="sim-input" id="cfg-height" type="number" value="20" min="1" max="200">
+      </div>
+      <div>
+        <label class="sim-label">Mode</label>
+        <select class="sim-input" id="cfg-mode">
+          <option value="ptmp">PT-MultiPoint</option>
+          <option value="ptp">Point-à-Point</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="confirmPlacement()" style="width:100%;margin-top:6px;">
+      Placer sur la carte
+    </button>
+  </div>
+
+  <!-- CPE configuration form -->
+  <div class="panel-section" id="section-cpe-config" style="display:none;">
+    <div class="panel-title">Config CPE client</div>
+    <label class="sim-label">Libellé</label>
+    <input class="sim-input" id="cpe-label" type="text" placeholder="Ex. Maison Traoré">
+    <div class="sim-row">
+      <div>
+        <label class="sim-label">Gain CPE (dBi)</label>
+        <input class="sim-input" id="cpe-gain" type="number" value="14" min="5" max="30">
+      </div>
+      <div>
+        <label class="sim-label">Hauteur (m)</label>
+        <input class="sim-input" id="cpe-height" type="number" value="6" min="1" max="50">
+      </div>
+    </div>
+    <div id="section-antenna-select" style="display:none;">
+      <label class="sim-label">Antenne mère</label>
+      <select class="sim-input" id="cpe-antenna-select"></select>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="confirmCpePlacement()" style="width:100%;margin-top:6px;">
+      Placer et calculer
+    </button>
+  </div>
+
+  <!-- PtP link configuration -->
+  <div class="panel-section" id="section-link-config" style="display:none;">
+    <div class="panel-title">Lien PtP — cliquez 2 antennes</div>
+    <div style="font-size:12px;color:var(--dim);">Sélectionnez l'antenne A puis l'antenne B sur la carte.</div>
+    <div id="link-status" style="margin-top:8px;font-size:12px;color:var(--amber);"></div>
+  </div>
+
+  <!-- Results panel -->
+  <div class="panel-section" id="section-results" style="display:none;">
+    <div class="panel-title">Résultats calculés <span style="font-size:9px;color:var(--muted);">(Friis théorique)</span></div>
+    <div id="results-content"></div>
+  </div>
+
+  <!-- Elements list -->
+  <div class="panel-section">
+    <div class="panel-title">Éléments (<span id="elem-count">0</span>)</div>
+    <div id="elem-list" style="max-height:140px;overflow-y:auto;"></div>
+    <div id="elem-empty" style="font-size:12px;color:var(--muted);padding:4px 0;">Aucun élément — placez des antennes ou CPE.</div>
+  </div>
+
+</div>
+
+<div id="sim-toast"></div>
+
+<script>
+(function () {
+'use strict';
+
+// ── Constants ────────────────────────────────────────────────────────────────
+var SIM_ID = {{ simulation.id }};
+var LOAD_URL = "{% url 'simulation:simulation_api_load' simulation.pk %}";
+var SAVE_URL = "{% url 'simulation:simulation_api_save' simulation.pk %}";
+var MAPBOX_TOKEN = "{{ mapbox_token }}";
+var NOISE_FLOOR = -95; // dBm assumed
+
+// ── RF Math module ────────────────────────────────────────────────────────────
+var RF = (function () {
+  function fspl(d_km, f_mhz) {
+    // Free-space path loss (Friis) in dB
+    if (d_km <= 0) return 0;
+    return 20 * Math.log10(d_km) + 20 * Math.log10(f_mhz) + 32.45;
+  }
+
+  function receivedSignal(pt_dbm, gt_dbi, gr_dbi, fspl_db) {
+    return pt_dbm + gt_dbi + gr_dbi - fspl_db;
+  }
+
+  function snrFromSignal(signal_dbm, noise_dbm) {
+    return signal_dbm - (noise_dbm || NOISE_FLOOR);
+  }
+
+  // Distance between two [lat, lng] pairs in km (Haversine)
+  function haversineKm(lat1, lng1, lat2, lng2) {
+    var R = 6371;
+    var dLat = (lat2 - lat1) * Math.PI / 180;
+    var dLng = (lng2 - lng1) * Math.PI / 180;
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  // Bearing from A to B in degrees (0=North)
+  function bearingDeg(lat1, lng1, lat2, lng2) {
+    var dLng = (lng2 - lng1) * Math.PI / 180;
+    var y = Math.sin(dLng) * Math.cos(lat2 * Math.PI / 180);
+    var x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+            Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLng);
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  }
+
+  // MCS mapping: SNR → {modulation, label, throughput_mbps (40 MHz ref)}
+  var MCS_TABLE = [
+    { minSnr: 30, mod: 'QAM-256 (MCS9)',  label: 'Excellent', tput40: 400, tput20: 200, tput80: 800 },
+    { minSnr: 25, mod: 'QAM-64 (MCS7)',   label: 'Très bon',  tput40: 300, tput20: 150, tput80: 600 },
+    { minSnr: 20, mod: 'QAM-16 (MCS4)',   label: 'Bon',       tput40: 150, tput20: 75,  tput80: 300 },
+    { minSnr: 15, mod: 'QPSK (MCS2)',     label: 'Moyen',     tput40: 60,  tput20: 30,  tput80: 120 },
+    { minSnr: 10, mod: 'BPSK (MCS0)',     label: 'Faible',    tput40: 20,  tput20: 10,  tput80: 40  },
+    { minSnr: -999, mod: 'Pas de signal', label: 'Hors portée', tput40: 0, tput20: 0,  tput80: 0   },
+  ];
+
+  function mcsFromSnr(snr_db, bandwidth_mhz) {
+    var bw = bandwidth_mhz || 40;
+    var key = bw === 20 ? 'tput20' : (bw === 80 ? 'tput80' : 'tput40');
+    for (var i = 0; i < MCS_TABLE.length; i++) {
+      if (snr_db >= MCS_TABLE[i].minSnr) {
+        return { modulation: MCS_TABLE[i].mod, label: MCS_TABLE[i].label, throughput: MCS_TABLE[i][key] };
+      }
+    }
+    return { modulation: 'Pas de signal', label: 'Hors portée', throughput: 0 };
+  }
+
+  function signalClass(signal_dbm) {
+    if (signal_dbm >= -60) return 'sig-excellent';
+    if (signal_dbm >= -70) return 'sig-good';
+    if (signal_dbm >= -80) return 'sig-fair';
+    return 'sig-poor';
+  }
+
+  // GeoJSON polygon for a sector coverage lobe
+  function coverageLobe(lat, lng, azimuth_deg, beamwidth_deg, radius_km, steps) {
+    steps = steps || 32;
+    var coords = [[lng, lat]]; // center
+    var half = beamwidth_deg / 2;
+    var startAngle = azimuth_deg - half;
+    var endAngle = azimuth_deg + half;
+    for (var i = 0; i <= steps; i++) {
+      var angle = (startAngle + (endAngle - startAngle) * i / steps) * Math.PI / 180;
+      var dLat = (radius_km / 111.32) * Math.cos(angle);
+      var dLng = (radius_km / (111.32 * Math.cos(lat * Math.PI / 180))) * Math.sin(angle);
+      coords.push([lng + dLng, lat + dLat]);
+    }
+    coords.push([lng, lat]); // close
+    return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] }, properties: {} };
+  }
+
+  // Signal color at a given distance from an antenna config
+  function signalColor(signal_dbm) {
+    if (signal_dbm >= -60) return '#10B981'; // excellent — green
+    if (signal_dbm >= -70) return '#84CC16'; // good — lime
+    if (signal_dbm >= -75) return '#F59E0B'; // fair — amber
+    if (signal_dbm >= -80) return '#EF4444'; // poor — red
+    return '#6B7280'; // out of range — gray
+  }
+
+  // Build gradient coverage polygon layers for the map (3 rings: -60, -75, -85)
+  function coverageLayers(lat, lng, cfg) {
+    var az = parseFloat(cfg.azimuth) || 0;
+    var bw = parseFloat(cfg.beamwidth) || 60;
+    var pt = parseFloat(cfg.power) || 23;
+    var gt = parseFloat(cfg.gain) || 16;
+    var fr = parseFloat(cfg.freq) || 5825;
+    var layers = [];
+    var thresholds = [-60, -70, -80];
+    var colors = ['#10B981', '#F59E0B', '#EF4444'];
+    for (var t = 0; t < thresholds.length; t++) {
+      // Distance where received signal = threshold (assume CPE gain 14 dBi)
+      var fspl_needed = pt + gt + 14 - thresholds[t];
+      var d_km = Math.pow(10, (fspl_needed - 32.45 - 20 * Math.log10(fr)) / 20);
+      d_km = Math.max(0.05, Math.min(d_km, 20));
+      layers.push({ geojson: coverageLobe(lat, lng, az, bw, d_km), color: colors[t], opacity: 0.13 });
+    }
+    return layers;
+  }
+
+  return { fspl, receivedSignal, snrFromSignal, haversineKm, bearingDeg, mcsFromSnr, signalClass, coverageLobe, coverageLayers, signalColor };
+})();
+
+// ── State ─────────────────────────────────────────────────────────────────────
+var map;
+var currentTool = null;  // 'antenna' | 'cpe' | 'tower' | 'link' | 'delete'
+var pendingLat = null, pendingLng = null;
+var elements = [];    // [{id, element_type, label, lat, lng, config, _marker, _layers}]
+var links = [];       // [{id, element_a_id, element_b_id, link_type, config, result}]
+var linkSelectA = null;  // first element picked when placing a link
+var tempMarker = null;
+var _nextId = -1;     // negative ids are client-temp ids
+
+function nextId() { return _nextId--; }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function getCsrf() {
+  return document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('csrftoken='))?.split('=')[1] || '';
+}
+
+function showToast(msg, isError) {
+  var t = document.getElementById('sim-toast');
+  t.textContent = msg;
+  t.className = 'show' + (isError ? ' error' : '');
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.className = '', 2800);
+}
+
+function setTool(tool) {
+  currentTool = (currentTool === tool) ? null : tool;
+  ['antenna','cpe','tower','link','delete'].forEach(function(t) {
+    document.getElementById('tool-' + t).classList.toggle('active', currentTool === t);
+  });
+  var mapEl = document.getElementById('sim-map');
+  mapEl.className = currentTool ? 'cursor-crosshair' : 'cursor-default';
+
+  // Show/hide config forms
+  document.getElementById('section-antenna-config').style.display = currentTool === 'antenna' ? '' : 'none';
+  document.getElementById('section-cpe-config').style.display = currentTool === 'cpe' ? '' : 'none';
+  document.getElementById('section-link-config').style.display = currentTool === 'link' ? '' : 'none';
+
+  // Populate antenna select for CPE
+  if (currentTool === 'cpe') {
+    var antennas = elements.filter(e => e.element_type === 'antenna');
+    var sel = document.getElementById('cpe-antenna-select');
+    sel.innerHTML = antennas.map(a => '<option value="' + a.id + '">' + (a.label || 'Antenne ' + a.id) + '</option>').join('');
+    document.getElementById('section-antenna-select').style.display = antennas.length ? '' : 'none';
+  }
+
+  if (currentTool === 'link') {
+    linkSelectA = null;
+    document.getElementById('link-status').textContent = 'Cliquez sur la 1ère antenne…';
+  }
+}
+
+function confirmPlacement() {
+  if (pendingLat === null) { showToast('Cliquez sur la carte pour choisir la position.', true); return; }
+  var cfg = {
+    freq: document.getElementById('cfg-freq').value,
+    bw: document.getElementById('cfg-bw').value,
+    power: document.getElementById('cfg-power').value,
+    gain: document.getElementById('cfg-gain').value,
+    azimuth: document.getElementById('cfg-azimuth').value,
+    beamwidth: document.getElementById('cfg-beamwidth').value,
+    height: document.getElementById('cfg-height').value,
+    mode: document.getElementById('cfg-mode').value,
+  };
+  var label = document.getElementById('cfg-label').value || 'Antenne';
+  addElement('antenna', pendingLat, pendingLng, cfg, label);
+  if (tempMarker) { tempMarker.remove(); tempMarker = null; }
+  pendingLat = null; pendingLng = null;
+  setTool(null);
+}
+
+function confirmCpePlacement() {
+  if (pendingLat === null) { showToast('Cliquez sur la carte pour choisir la position.', true); return; }
+  var cfg = {
+    gain: document.getElementById('cpe-gain').value,
+    height: document.getElementById('cpe-height').value,
+    antenna_id: document.getElementById('cpe-antenna-select').value || null,
+  };
+  var label = document.getElementById('cpe-label').value || 'CPE';
+  addElement('cpe', pendingLat, pendingLng, cfg, label);
+  if (tempMarker) { tempMarker.remove(); tempMarker = null; }
+  pendingLat = null; pendingLng = null;
+  setTool(null);
+
+  // Auto-compute signal if antenna selected
+  var elem = elements[elements.length - 1];
+  if (cfg.antenna_id) computeCpeSignal(elem);
+}
+
+// ── Element management ────────────────────────────────────────────────────────
+var TYPE_COLORS = { antenna: '#C9972C', cpe: '#06B6D4', relay: '#10B981', tower: '#8B5CF6' };
+var TYPE_ICONS  = {
+  antenna: '📡', cpe: '🏠', relay: '🔁', tower: '📶',
+};
+var TYPE_LABELS = { antenna: 'Antenne', cpe: 'CPE', relay: 'Relais', tower: 'Tour' };
+
+function markerEl(type) {
+  var el = document.createElement('div');
+  el.style.cssText = 'width:28px;height:28px;border-radius:50%;background:' + (TYPE_COLORS[type] || '#888') +
+    ';border:2.5px solid rgba(255,255,255,.7);display:flex;align-items:center;justify-content:center;font-size:13px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.5);';
+  el.title = TYPE_LABELS[type] || type;
+  var emoji = document.createElement('span');
+  emoji.textContent = TYPE_ICONS[type] || '•';
+  el.appendChild(emoji);
+  return el;
+}
+
+function addElement(type, lat, lng, cfg, label) {
+  var elem = { id: nextId(), element_type: type, label: label || '', lat: lat, lng: lng, config: cfg || {} };
+  elements.push(elem);
+
+  var el = markerEl(type);
+  var marker = new mapboxgl.Marker({ element: el, draggable: true })
+    .setLngLat([lng, lat])
+    .addTo(map);
+
+  marker.on('dragend', function () {
+    var lnglat = marker.getLngLat();
+    elem.lat = lnglat.lat;
+    elem.lng = lnglat.lng;
+    redrawCoverage(elem);
+    recomputeLinks(elem);
+  });
+
+  el.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (currentTool === 'delete') { removeElement(elem); return; }
+    if (currentTool === 'link') { handleLinkClick(elem); return; }
+    showElementInfo(elem);
+  });
+
+  elem._marker = marker;
+  elem._layers = [];
+
+  if (type === 'antenna') drawCoverage(elem);
+  renderElementList();
+  return elem;
+}
+
+function removeElement(elem) {
+  if (elem._marker) elem._marker.remove();
+  removeCoverage(elem);
+  elements = elements.filter(e => e.id !== elem.id);
+  links = links.filter(l => l.element_a_id !== elem.id && l.element_b_id !== elem.id);
+  redrawAllLinks();
+  renderElementList();
+}
+
+// ── Coverage lobes (Mapbox layers) ────────────────────────────────────────────
+var _coverageLayerCount = 0;
+
+function drawCoverage(elem) {
+  removeCoverage(elem);
+  var layers = RF.coverageLayers(elem.lat, elem.lng, elem.config);
+  layers.forEach(function (l, i) {
+    var srcId = 'cov-src-' + elem.id + '-' + i;
+    var layId = 'cov-lay-' + elem.id + '-' + i;
+    map.addSource(srcId, { type: 'geojson', data: l.geojson });
+    map.addLayer({
+      id: layId, type: 'fill', source: srcId,
+      paint: { 'fill-color': l.color, 'fill-opacity': l.opacity },
+    });
+    elem._layers.push({ srcId, layId });
+  });
+}
+
+function removeCoverage(elem) {
+  if (!elem._layers) return;
+  elem._layers.forEach(function (l) {
+    if (map.getLayer(l.layId)) map.removeLayer(l.layId);
+    if (map.getSource(l.srcId)) map.removeSource(l.srcId);
+  });
+  elem._layers = [];
+}
+
+function redrawCoverage(elem) {
+  if (elem.element_type === 'antenna') drawCoverage(elem);
+}
+
+// ── PtP links ─────────────────────────────────────────────────────────────────
+var _linkLayerCount = 0;
+
+function handleLinkClick(elem) {
+  if (!elem.element_type.match(/antenna|relay|tower/)) {
+    showToast('Sélectionnez une antenne ou tour comme point de départ.', true); return;
+  }
+  if (!linkSelectA) {
+    linkSelectA = elem;
+    document.getElementById('link-status').textContent = 'A sélectionné : ' + (elem.label || elem.id) + '. Cliquez sur B…';
+    return;
+  }
+  if (linkSelectA.id === elem.id) {
+    showToast('Sélectionnez un élément différent.', true); return;
+  }
+  addLink(linkSelectA, elem);
+  linkSelectA = null;
+  document.getElementById('link-status').textContent = 'Lien créé. Cliquez sur A pour un nouveau lien.';
+}
+
+function addLink(elemA, elemB) {
+  var d_km = RF.haversineKm(elemA.lat, elemA.lng, elemB.lat, elemB.lng);
+  var freqA = parseFloat(elemA.config.freq) || 5825;
+  var ptA = parseFloat(elemA.config.power) || 23;
+  var gtA = parseFloat(elemA.config.gain) || 16;
+  var gtB = parseFloat(elemB.config && elemB.config.gain) || 16;
+  var bwA = parseFloat(elemA.config.bw) || 40;
+  var fspl = RF.fspl(d_km, freqA);
+  var signalB = RF.receivedSignal(ptA, gtA, gtB, fspl);
+  var snrB = RF.snrFromSignal(signalB, NOISE_FLOOR);
+  var mcsB = RF.mcsFromSnr(snrB, bwA);
+
+  var link = {
+    id: nextId(),
+    element_a_id: elemA.id,
+    element_b_id: elemB.id,
+    link_type: 'ptp',
+    config: { freq: freqA, power: ptA, gain_a: gtA, gain_b: gtB, bw: bwA },
+    result: { d_km: d_km.toFixed(3), fspl: fspl.toFixed(1), signal_b: signalB.toFixed(1), snr_b: snrB.toFixed(1), mcs: mcsB.modulation, tput: mcsB.throughput },
+  };
+  links.push(link);
+  drawLink(link);
+  showLinkResults(link, elemA, elemB);
+}
+
+function drawLink(link) {
+  var elemA = elements.find(e => e.id === link.element_a_id);
+  var elemB = elements.find(e => e.id === link.element_b_id);
+  if (!elemA || !elemB) return;
+
+  var srcId = 'link-src-' + link.id;
+  var layId = 'link-lay-' + link.id;
+  var geojson = {
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: [[elemA.lng, elemA.lat], [elemB.lng, elemB.lat]] },
+    properties: {},
+  };
+  if (!map.getSource(srcId)) {
+    map.addSource(srcId, { type: 'geojson', data: geojson });
+    map.addLayer({
+      id: layId, type: 'line', source: srcId,
+      paint: { 'line-color': '#C9972C', 'line-width': 2.5, 'line-dasharray': [4, 2] },
+    });
+  }
+  link._srcId = srcId;
+  link._layId = layId;
+}
+
+function redrawAllLinks() {
+  links.forEach(function (link) {
+    if (link._srcId && map.getSource(link._srcId)) {
+      var elemA = elements.find(e => e.id === link.element_a_id);
+      var elemB = elements.find(e => e.id === link.element_b_id);
+      if (elemA && elemB) {
+        map.getSource(link._srcId).setData({
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: [[elemA.lng, elemA.lat], [elemB.lng, elemB.lat]] },
+          properties: {},
+        });
+      }
+    }
+  });
+}
+
+function recomputeLinks(movedElem) {
+  redrawAllLinks();
+  links.forEach(function (link) {
+    if (link.element_a_id === movedElem.id || link.element_b_id === movedElem.id) {
+      var elemA = elements.find(e => e.id === link.element_a_id);
+      var elemB = elements.find(e => e.id === link.element_b_id);
+      if (elemA && elemB) {
+        var d_km = RF.haversineKm(elemA.lat, elemA.lng, elemB.lat, elemB.lng);
+        var fspl = RF.fspl(d_km, parseFloat(link.config.freq) || 5825);
+        var sigB = RF.receivedSignal(link.config.power, link.config.gain_a, link.config.gain_b, fspl);
+        var snrB = RF.snrFromSignal(sigB, NOISE_FLOOR);
+        var mcs = RF.mcsFromSnr(snrB, link.config.bw);
+        link.result = { d_km: d_km.toFixed(3), fspl: fspl.toFixed(1), signal_b: sigB.toFixed(1), snr_b: snrB.toFixed(1), mcs: mcs.modulation, tput: mcs.throughput };
+      }
+    }
+  });
+}
+
+// ── Signal computation for CPE ────────────────────────────────────────────────
+function computeCpeSignal(cpe) {
+  var antennaId = cpe.config.antenna_id;
+  var antenna = antennaId ? elements.find(e => String(e.id) === String(antennaId)) : elements.find(e => e.element_type === 'antenna');
+  if (!antenna) { showToast('Aucune antenne trouvée pour le calcul.', true); return; }
+
+  var d_km = RF.haversineKm(antenna.lat, antenna.lng, cpe.lat, cpe.lng);
+  var freq = parseFloat(antenna.config.freq) || 5825;
+  var pt = parseFloat(antenna.config.power) || 23;
+  var gt = parseFloat(antenna.config.gain) || 16;
+  var gr = parseFloat(cpe.config.gain) || 14;
+  var bw = parseFloat(antenna.config.bw) || 40;
+  var fspl = RF.fspl(d_km, freq);
+  var signal = RF.receivedSignal(pt, gt, gr, fspl);
+  var snr = RF.snrFromSignal(signal, NOISE_FLOOR);
+  var mcs = RF.mcsFromSnr(snr, bw);
+
+  showCpeResults({ d_km, fspl, signal, snr, mcs, antenna });
+}
+
+function showCpeResults(r) {
+  var sc = RF.signalClass(r.signal);
+  var margin = r.signal - (-80); // margin over -80 dBm threshold
+  var content = '<div class="result-card">' +
+    '<div class="result-label">Distance</div>' +
+    '<div class="result-value" style="color:var(--primary);">' + (r.d_km < 1 ? (r.d_km * 1000).toFixed(0) + ' m' : r.d_km.toFixed(2) + ' km') + '</div>' +
+    '<div class="result-sub">Antenne : ' + (r.antenna.label || 'Antenne') + '</div></div>' +
+
+    '<div class="result-card">' +
+    '<div class="result-label">Signal reçu (théorique)</div>' +
+    '<div class="result-value ' + sc + '">' + r.signal.toFixed(1) + ' dBm</div>' +
+    '<div class="result-sub">Marge : ' + (margin > 0 ? '+' : '') + margin.toFixed(1) + ' dB / FSPL : ' + r.fspl.toFixed(1) + ' dB</div></div>' +
+
+    '<div class="result-card">' +
+    '<div class="result-label">SNR estimé</div>' +
+    '<div class="result-value ' + sc + '">' + r.snr.toFixed(1) + ' dB</div>' +
+    '<div class="result-sub">Plancher bruit : ' + NOISE_FLOOR + ' dBm</div></div>' +
+
+    '<div class="result-card">' +
+    '<div class="result-label">Modulation estimée</div>' +
+    '<div class="result-value" style="font-size:13px;line-height:1.4;">' + r.mcs.modulation + '</div>' +
+    '<div class="result-sub">' + r.mcs.label + ' — ~' + r.mcs.throughput + ' Mbps estimé</div></div>';
+
+  document.getElementById('results-content').innerHTML = content;
+  document.getElementById('section-results').style.display = '';
+}
+
+function showLinkResults(link, elemA, elemB) {
+  var r = link.result;
+  var sc = RF.signalClass(parseFloat(r.signal_b));
+  var content = '<div style="font-size:11px;color:var(--dim);margin-bottom:8px;">PtP : ' +
+    (elemA.label || 'A') + ' ↔ ' + (elemB.label || 'B') + '</div>' +
+
+    '<div class="result-card">' +
+    '<div class="result-label">Distance</div>' +
+    '<div class="result-value" style="color:var(--primary);">' +
+      (parseFloat(r.d_km) < 1 ? (parseFloat(r.d_km) * 1000).toFixed(0) + ' m' : parseFloat(r.d_km).toFixed(2) + ' km') +
+    '</div></div>' +
+
+    '<div class="result-card">' +
+    '<div class="result-label">Signal A→B (théorique)</div>' +
+    '<div class="result-value ' + sc + '">' + r.signal_b + ' dBm</div>' +
+    '<div class="result-sub">FSPL : ' + r.fspl + ' dB · SNR : ' + r.snr_b + ' dB</div></div>' +
+
+    '<div class="result-card">' +
+    '<div class="result-label">Modulation estimée</div>' +
+    '<div class="result-value" style="font-size:13px;line-height:1.4;">' + r.mcs + '</div>' +
+    '<div class="result-sub">~' + r.tput + ' Mbps estimé</div></div>';
+
+  document.getElementById('results-content').innerHTML = content;
+  document.getElementById('section-results').style.display = '';
+}
+
+function showElementInfo(elem) {
+  if (elem.element_type === 'antenna') {
+    var cfg = elem.config;
+    var content = '<div style="font-size:11px;color:var(--dim);margin-bottom:8px;">' + (elem.label || 'Antenne') + '</div>' +
+      '<div class="result-card"><div class="result-label">Config RF</div>' +
+      '<div style="font-size:12px;line-height:1.8;">' +
+      'Fréq : <b>' + (cfg.freq || '—') + ' MHz</b><br>' +
+      'Puissance : <b>' + (cfg.power || '—') + ' dBm</b>   Gain : <b>' + (cfg.gain || '—') + ' dBi</b><br>' +
+      'Azimut : <b>' + (cfg.azimuth || '0') + '°</b>  Ouv. : <b>' + (cfg.beamwidth || '60') + '°</b>' +
+      '</div></div>';
+    document.getElementById('results-content').innerHTML = content;
+    document.getElementById('section-results').style.display = '';
+  } else if (elem.element_type === 'cpe') {
+    computeCpeSignal(elem);
+  }
+}
+
+// ── Element list panel ────────────────────────────────────────────────────────
+function buildElemList() {
+  var list = document.getElementById('elem-list');
+  var empty = document.getElementById('elem-empty');
+  document.getElementById('elem-count').textContent = elements.length;
+  if (!elements.length) { list.innerHTML = ''; empty.style.display = ''; return; }
+  empty.style.display = 'none';
+  list.innerHTML = '';
+  elements.forEach(function (e, i) {
+    var div = document.createElement('div');
+    div.className = 'elem-item';
+    div.innerHTML = '<div class="elem-dot elem-dot-' + e.element_type + '"></div>' +
+      '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (e.label || TYPE_LABELS[e.element_type]) + '</span>' +
+      '<span style="color:var(--muted);font-size:10px;">' + TYPE_LABELS[e.element_type] + '</span>';
+    div.addEventListener('click', function () { showElementInfo(e); map.flyTo({center:[e.lng,e.lat],zoom:16}); });
+    list.appendChild(div);
+  });
+}
+
+function renderElementList() { buildElemList(); }
+
+// ── Save / Load ───────────────────────────────────────────────────────────────
+function saveSimulation() {
+  var btn = document.getElementById('btn-save');
+  btn.disabled = true;
+  var center = map.getCenter();
+  var payload = {
+    name: document.getElementById('sim-name-display').textContent,
+    center_lat: center.lat,
+    center_lng: center.lng,
+    zoom: map.getZoom(),
+    elements: elements.map(function (e) {
+      return { id: e.id, element_type: e.element_type, label: e.label, lat: e.lat, lng: e.lng, config: e.config };
+    }),
+    links: links.map(function (l) {
+      return { id: l.id, element_a_id: l.element_a_id, element_b_id: l.element_b_id, link_type: l.link_type, config: l.config, result: l.result };
+    }),
+  };
+  fetch(SAVE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+    body: JSON.stringify(payload),
+  })
+  .then(r => r.json())
+  .then(function (data) {
+    btn.disabled = false;
+    if (data.ok) {
+      // Remap ids after server save then reload to get stable db ids
+      showToast('Simulation sauvegardée.');
+      loadSimulation();
+    } else {
+      showToast('Erreur lors de la sauvegarde.', true);
+    }
+  })
+  .catch(function () { btn.disabled = false; showToast('Erreur réseau.', true); });
+}
+
+function loadSimulation() {
+  fetch(LOAD_URL)
+  .then(r => r.json())
+  .then(function (data) {
+    // Clear existing
+    elements.forEach(function (e) {
+      if (e._marker) e._marker.remove();
+      removeCoverage(e);
+    });
+    links.forEach(function (l) {
+      if (l._layId && map.getLayer(l._layId)) map.removeLayer(l._layId);
+      if (l._srcId && map.getSource(l._srcId)) map.removeSource(l._srcId);
+    });
+    elements = []; links = [];
+
+    // Restore elements
+    data.elements.forEach(function (e) {
+      var elem = addElement(e.element_type, e.lat, e.lng, e.config, e.label);
+      elem.id = e.id; // replace client id with db id
+    });
+
+    // Restore links
+    data.links.forEach(function (l) {
+      var link = { id: l.id, element_a_id: l.element_a_id, element_b_id: l.element_b_id, link_type: l.link_type, config: l.config, result: l.result };
+      links.push(link);
+      drawLink(link);
+    });
+
+    renderElementList();
+
+    if (data.center_lat && data.center_lng) {
+      map.flyTo({ center: [data.center_lng, data.center_lat], zoom: data.zoom || 14 });
+    }
+  })
+  .catch(function (e) { console.error('Load error', e); });
+}
+
+// ── Map init ──────────────────────────────────────────────────────────────────
+mapboxgl.accessToken = MAPBOX_TOKEN;
+
+var mapOptions = {
+  container: 'sim-map',
+  style: 'mapbox://styles/mapbox/satellite-streets-v12',
+  center: [{{ simulation.center_lng|default:"-1.5" }}, {{ simulation.center_lat|default:"12.3" }}],
+  zoom: {{ simulation.zoom|default:"13" }},
+  pitch: 35,
+  bearing: 0,
+};
+
+if (!MAPBOX_TOKEN) {
+  document.getElementById('sim-map').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;background:var(--card);color:var(--dim);font-size:14px;flex-direction:column;gap:12px;"><svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg><span>Configurer MAPBOX_ACCESS_TOKEN pour activer la carte</span></div>';
+} else {
+  map = new mapboxgl.Map(mapOptions);
+
+  map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
+  map.addControl(new mapboxgl.ScaleControl(), 'bottom-left');
+
+  map.on('load', function () {
+    // Add terrain DEM
+    map.addSource('mapbox-dem', {
+      type: 'raster-dem', url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
+      tileSize: 512, maxzoom: 14,
+    });
+    map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.2 });
+
+    // Load persisted simulation data
+    loadSimulation();
+  });
+
+  // Map click handler
+  map.on('click', function (e) {
+    if (!currentTool) return;
+
+    if (currentTool === 'antenna' || currentTool === 'cpe' || currentTool === 'tower') {
+      pendingLat = e.lngLat.lat;
+      pendingLng = e.lngLat.lng;
+
+      // Place temp marker to show click position
+      if (tempMarker) tempMarker.remove();
+      var el = document.createElement('div');
+      el.style.cssText = 'width:12px;height:12px;border-radius:50%;background:rgba(201,151,44,.7);border:2px solid #C9972C;';
+      tempMarker = new mapboxgl.Marker({ element: el }).setLngLat([pendingLng, pendingLat]).addTo(map);
+
+      if (currentTool === 'tower') {
+        // Towers have no RF config; place immediately
+        addElement('tower', pendingLat, pendingLng, {}, 'Tour/Mât');
+        tempMarker.remove(); tempMarker = null;
+        pendingLat = null; pendingLng = null;
+      } else {
+        showToast('Position mémorisée. Configurez puis cliquez « Placer ».');
+      }
+    }
+  });
+}
+
+})();
+</script>
+{% endblock %}

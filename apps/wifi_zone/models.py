@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import secrets
 from decimal import Decimal
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 from apps.core.models import NetworkDevice, Site
 
@@ -90,6 +92,12 @@ class Ticket(models.Model):
     )
     sold_at = models.DateTimeField(null=True, blank=True)
     used_at = models.DateTimeField(null=True, blank=True)
+    hotspot_password = models.CharField(
+        "Mot de passe MikroTik",
+        max_length=64,
+        blank=True,
+        help_text="Mot de passe distinct du code (tickets revendeurs). Vide = utilise le code comme mot de passe.",
+    )
     hotspot_synced_at = models.DateTimeField(
         "Dernier provisionnement Hotspot",
         null=True,
@@ -189,11 +197,61 @@ class WifiTicketBatch(models.Model):
         return self.label or f"Lot #{self.pk} ({self.quantity})"
 
 
+class PlanAbonnement(models.Model):
+    """Plan d'abonnement domicile (Starter, Standard, Premium, Business)."""
+
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
+        on_delete=models.CASCADE,
+        related_name="plans_abonnement",
+        verbose_name="Organisation",
+    )
+    name = models.CharField("Nom du plan", max_length=128)
+    speed_mbps = models.PositiveIntegerField("Débit (Mbps)", default=2)
+    price_xof = models.DecimalField(
+        "Prix mensuel (XOF)",
+        max_digits=12,
+        decimal_places=0,
+        validators=[MinValueValidator(0)],
+    )
+    description = models.TextField("Description", blank=True)
+    is_active = models.BooleanField("Actif", default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "plan d'abonnement"
+        verbose_name_plural = "plans d'abonnement"
+        ordering = ["price_xof"]
+
+    def __str__(self) -> str:
+        return f"{self.name} — {self.speed_mbps} Mbps — {self.price_xof} XOF"
+
+
 class WiFiSimpleSubscriber(models.Model):
-    """Abonné mensuel Wi-Fi Simple : expiration, MAC pour blocage SSH sur routeur Ubiquiti."""
+    """Abonné domicile : expiration, MAC/IP, GPS, plan mensuel, contrôle MikroTik."""
+
+    class Status(models.TextChoices):
+        NOUVEAU = "nouveau", "Nouveau"
+        ACTIF = "actif", "Actif"
+        SUSPENDU = "suspendu", "Suspendu"
+        EXPIRE = "expire", "Expiré"
 
     full_name = models.CharField("Nom", max_length=128)
     phone = models.CharField("Téléphone", max_length=32, db_index=True)
+    whatsapp_phone = models.CharField(
+        "Numéro WhatsApp",
+        max_length=32,
+        blank=True,
+        help_text="+226XXXXXXXXX — laissez vide pour utiliser le numéro principal.",
+    )
+    address = models.CharField("Adresse", max_length=255, blank=True)
+    quartier = models.CharField("Quartier", max_length=64, blank=True)
+    latitude = models.DecimalField(
+        "Latitude GPS", max_digits=9, decimal_places=6, null=True, blank=True
+    )
+    longitude = models.DecimalField(
+        "Longitude GPS", max_digits=9, decimal_places=6, null=True, blank=True
+    )
     mac_address = models.CharField(
         "Adresse MAC (CPE / client)",
         max_length=17,
@@ -201,7 +259,28 @@ class WiFiSimpleSubscriber(models.Model):
         blank=True,
         help_text="Format AA:BB:CC:DD:EE:FF — utilisé pour blocage / déblocage.",
     )
+    ip_static = models.GenericIPAddressField(
+        "IP statique",
+        null=True,
+        blank=True,
+        help_text="IP client pour Simple Queue et ARP statique.",
+    )
+    plan = models.ForeignKey(
+        PlanAbonnement,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="subscribers",
+        verbose_name="Plan souscrit",
+    )
     expires_at = models.DateTimeField("Date d'expiration", db_index=True)
+    status = models.CharField(
+        "Statut",
+        max_length=16,
+        choices=Status.choices,
+        default=Status.NOUVEAU,
+        db_index=True,
+    )
     site = models.ForeignKey(
         Site,
         on_delete=models.PROTECT,
@@ -214,14 +293,14 @@ class WiFiSimpleSubscriber(models.Model):
         null=True,
         blank=True,
         related_name="wifi_simple_subscribers",
-        verbose_name="Équipement (routeur / AP)",
-        help_text="Cible des commandes SSH / blocage MAC.",
+        verbose_name="Routeur MikroTik",
+        help_text="Équipement cible pour les commandes RouterOS.",
     )
     is_payment_current = models.BooleanField("Abonnement payé à jour", default=True, db_index=True)
     mac_blocked_on_network = models.BooleanField(
         "MAC bloquée sur le réseau",
         default=False,
-        help_text="Synchronisé après commande SSH réussie.",
+        help_text="Synchronisé après commande RouterOS réussie.",
     )
     last_billing_sync_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
@@ -231,9 +310,152 @@ class WiFiSimpleSubscriber(models.Model):
 
     class Meta:
         db_table = "wifi_zone_clientabonne"
-        verbose_name = "abonné Wi-Fi Simple"
-        verbose_name_plural = "abonnés Wi-Fi Simple"
+        verbose_name = "abonné domicile"
+        verbose_name_plural = "abonnés domicile"
         ordering = ["-expires_at"]
 
     def __str__(self) -> str:
         return f"{self.full_name} ({self.phone})"
+
+    @property
+    def effective_whatsapp_phone(self) -> str:
+        return (self.whatsapp_phone or self.phone).strip()
+
+    @property
+    def is_expiring_soon(self) -> bool:
+        from datetime import timedelta
+        return self.expires_at <= timezone.now() + timedelta(days=7)
+
+    @property
+    def days_until_expiry(self) -> int:
+        delta = self.expires_at - timezone.now()
+        return max(0, delta.days)
+
+
+class TicketPlainte(models.Model):
+    """Ticket de plainte client (WhatsApp, appel ou manuel)."""
+
+    class Source(models.TextChoices):
+        WHATSAPP = "whatsapp", "WhatsApp"
+        APPEL = "appel", "Appel téléphonique"
+        MANUEL = "manuel", "Saisie manuelle"
+
+    class Priority(models.TextChoices):
+        HAUTE = "haute", "Haute"
+        MOYENNE = "moyenne", "Moyenne"
+        BASSE = "basse", "Basse"
+
+    class Status(models.TextChoices):
+        NOUVEAU = "nouveau", "Nouveau"
+        EN_COURS = "en_cours", "En cours"
+        RESOLU = "resolu", "Résolu"
+        FERME = "ferme", "Fermé"
+
+    _HIGH_KEYWORDS = ["urgent", "pas de connexion", "rien", "coupure", "pas internet"]
+    _MEDIUM_KEYWORDS = ["lent", "lenteur", "problème", "probleme", "pb"]
+    _LOW_KEYWORDS = ["question", "info", "renseignement"]
+
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
+        on_delete=models.CASCADE,
+        related_name="tickets_plainte",
+        verbose_name="Organisation",
+    )
+    reference = models.CharField("Référence", max_length=32, db_index=True, editable=False)
+    subscriber = models.ForeignKey(
+        WiFiSimpleSubscriber,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tickets_plainte",
+        verbose_name="Abonné",
+    )
+    phone_from = models.CharField("Téléphone expéditeur", max_length=32, blank=True)
+    source = models.CharField(
+        "Source", max_length=16, choices=Source.choices, default=Source.MANUEL, db_index=True
+    )
+    message_original = models.TextField("Message original")
+    category = models.CharField("Catégorie", max_length=64, blank=True)
+    priority = models.CharField(
+        "Priorité",
+        max_length=16,
+        choices=Priority.choices,
+        default=Priority.MOYENNE,
+        db_index=True,
+    )
+    status = models.CharField(
+        "Statut",
+        max_length=16,
+        choices=Status.choices,
+        default=Status.NOUVEAU,
+        db_index=True,
+    )
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tickets_plainte_assigned",
+        verbose_name="Technicien assigné",
+    )
+    resolution_notes = models.TextField("Notes de résolution", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "ticket de plainte"
+        verbose_name_plural = "tickets de plainte"
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "reference"],
+                name="wifi_ticketplainte_tenant_reference_uniq",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.reference} — {self.message_original[:60]}"
+
+    @classmethod
+    def classify_priority(cls, text: str) -> str:
+        t = text.lower()
+        if any(kw in t for kw in cls._HIGH_KEYWORDS):
+            return cls.Priority.HAUTE
+        if any(kw in t for kw in cls._MEDIUM_KEYWORDS):
+            return cls.Priority.MOYENNE
+        if any(kw in t for kw in cls._LOW_KEYWORDS):
+            return cls.Priority.BASSE
+        return cls.Priority.MOYENNE
+
+    def save(self, *args, **kwargs):
+        if not self.reference:
+            year = timezone.now().year
+            last = (
+                TicketPlainte.objects.filter(
+                    tenant_id=self.tenant_id,
+                    reference__startswith=f"TICK-{year}-",
+                )
+                .order_by("-reference")
+                .values_list("reference", flat=True)
+                .first()
+            )
+            if last:
+                try:
+                    num = int(last.split("-")[-1]) + 1
+                except (ValueError, IndexError):
+                    num = 1
+            else:
+                num = 1
+            for _ in range(10):
+                candidate = f"TICK-{year}-{num:03d}"
+                if not TicketPlainte.objects.filter(
+                    tenant_id=self.tenant_id, reference=candidate
+                ).exists():
+                    self.reference = candidate
+                    break
+                num += 1
+            else:
+                self.reference = f"TICK-{year}-{secrets.token_hex(3).upper()}"
+        if not self.priority:
+            self.priority = self.classify_priority(self.message_original)
+        super().save(*args, **kwargs)

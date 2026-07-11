@@ -278,6 +278,65 @@ def sync_wifi_simple_subscriber_access(
 
 # ── API publique : hotspot vouchers (Wi-Fi Zone) ──────────────────────────────
 
+def disconnect_hotspot_session(
+    device: NetworkDevice,
+    session_id: str,
+    username: str,
+    *,
+    performed_by=None,
+    ip_address: str | None = None,
+) -> tuple[bool, str]:
+    """Déconnecte une session hotspot active via son identifiant RouterOS."""
+    if not device.is_active:
+        return False, "Équipement inactif."
+    if device.vendor != device.Vendor.MIKROTIK:
+        return False, "Déconnexion hotspot non implémentée pour ce vendor."
+
+    dry_run = bool(getattr(settings, "ROUTER_CONTROL_DRY_RUN", False))
+    try:
+        with RouterOSClient(device) as client:
+            ok = client.hotspot_active_remove_by_id(session_id)
+        err_msg = "" if ok else "Échec déconnexion session RouterOS."
+        log_router_action(
+            device,
+            "hotspot_disconnect",
+            target=username,
+            command_sent=f"hotspot active remove .id={session_id}",
+            success=ok,
+            error_message=err_msg,
+            dry_run=dry_run,
+            performed_by=performed_by,
+            ip_address=ip_address,
+        )
+        return ok, err_msg
+    except RouterOSError as exc:
+        msg = str(exc)[:500]
+        log_router_action(
+            device,
+            "hotspot_disconnect",
+            target=username,
+            success=False,
+            error_message=msg,
+            dry_run=dry_run,
+            performed_by=performed_by,
+            ip_address=ip_address,
+        )
+        logger.error("disconnect_hotspot device=%s session=%s : %s", device, session_id, exc)
+        return False, msg
+
+
+def fetch_mikrotik_hotspot_active_details(device: NetworkDevice) -> list[dict]:
+    """Retourne les sessions actives avec détails (user, IP, MAC, uptime, bytes)."""
+    if not device.is_active:
+        return []
+    try:
+        with RouterOSClient(device) as client:
+            return client.hotspot_active_details()
+    except RouterOSError as exc:
+        logger.warning("fetch_active_details device=%s : %s", device, exc)
+        return []
+
+
 def provision_wifi_zone_hotspot_for_ticket(
     ticket: Ticket,
     *,
@@ -306,6 +365,8 @@ def provision_wifi_zone_hotspot_for_ticket(
     if any(c in code for c in '"\\\n\r\t'):
         return False, "Caractères non autorisés dans le code ticket."
 
+    password = (getattr(ticket, "hotspot_password", "") or "").strip() or code
+
     server = (getattr(settings, "MIKROTIK_HOTSPOT_SERVER", "") or "").strip()
     comment = f"faso-wifi-zone-ticket-{ticket.pk}"
     dry_run = bool(getattr(settings, "ROUTER_CONTROL_DRY_RUN", False))
@@ -314,7 +375,7 @@ def provision_wifi_zone_hotspot_for_ticket(
         with RouterOSClient(device) as client:
             ok, err_msg = client.hotspot_user_upsert(
                 name=code,
-                password=code,
+                password=password,
                 profile=profile,
                 limit_uptime=limit_uptime,
                 comment=comment,
@@ -398,6 +459,142 @@ def remove_wifi_zone_hotspot_for_ticket(
 
 
 # ── API publique : lecture état hotspot ───────────────────────────────────────
+
+# ── API publique : abonnés domicile (address-list + ARP + SimpleQueue) ────────
+
+def _subscriber_comment(subscriber_pk: int) -> str:
+    return f"faso-abonne-{subscriber_pk}"
+
+
+def activate_subscriber(
+    subscriber,
+    *,
+    performed_by=None,
+    ip_address: str | None = None,
+) -> tuple[bool, str]:
+    """Active un abonné : MAC → address-list abonnes-actifs + ARP statique."""
+    device = subscriber.cpe_device
+    if device is None:
+        return False, "Aucun routeur MikroTik assigné à cet abonné."
+    if not device.is_active:
+        return False, "Équipement inactif."
+
+    mac = (subscriber.mac_address or "").strip()
+    ip = (str(subscriber.ip_static) if subscriber.ip_static else "").strip()
+    comment = _subscriber_comment(subscriber.pk)
+    dry_run = bool(getattr(settings, "ROUTER_CONTROL_DRY_RUN", False))
+
+    try:
+        with RouterOSClient(device) as client:
+            ok1 = client.address_list_remove_by_comment(comment)
+            ok2 = True
+            if mac:
+                ok2 = client.address_list_add(mac, "abonnes-actifs", comment)
+            ok3 = True
+            if ip and mac:
+                bridge = _mikrotik_bridge_name(device)
+                ok3 = client.arp_add_static(ip, mac, bridge, comment)
+            ok = ok1 and ok2 and ok3
+        log_router_action(
+            device, "mac_unblock", target=mac or str(subscriber.pk),
+            command_sent=f"address-list add mac={mac} list=abonnes-actifs",
+            success=ok, dry_run=dry_run,
+            performed_by=performed_by, ip_address=ip_address,
+        )
+        if ok:
+            subscriber.status = subscriber.Status.ACTIF
+            subscriber.mac_blocked_on_network = False
+            subscriber.is_payment_current = True
+            subscriber.save(update_fields=["status", "mac_blocked_on_network", "is_payment_current", "updated_at"])
+        return ok, "" if ok else "Erreur lors de l'activation RouterOS."
+    except RouterOSError as exc:
+        msg = str(exc)[:500]
+        log_router_action(device, "mac_unblock", target=mac or str(subscriber.pk),
+                          success=False, error_message=msg, dry_run=dry_run,
+                          performed_by=performed_by, ip_address=ip_address)
+        return False, msg
+
+
+def suspend_subscriber(
+    subscriber,
+    *,
+    performed_by=None,
+    ip_address: str | None = None,
+) -> tuple[bool, str]:
+    """Suspend un abonné : retire de abonnes-actifs, ajoute à abonnes-suspendus."""
+    device = subscriber.cpe_device
+    if device is None:
+        subscriber.status = subscriber.Status.SUSPENDU
+        subscriber.save(update_fields=["status", "updated_at"])
+        return True, "(pas de routeur assigné — statut mis à jour)"
+
+    mac = (subscriber.mac_address or "").strip()
+    comment = _subscriber_comment(subscriber.pk)
+    dry_run = bool(getattr(settings, "ROUTER_CONTROL_DRY_RUN", False))
+
+    try:
+        with RouterOSClient(device) as client:
+            client.address_list_remove_by_comment(comment)
+            ok = True
+            if mac:
+                ok = client.address_list_add(mac, "abonnes-suspendus", comment)
+            client.arp_remove_by_comment(comment)
+        log_router_action(
+            device, "mac_block", target=mac or str(subscriber.pk),
+            command_sent=f"address-list add mac={mac} list=abonnes-suspendus",
+            success=ok, dry_run=dry_run,
+            performed_by=performed_by, ip_address=ip_address,
+        )
+        if ok:
+            subscriber.status = subscriber.Status.SUSPENDU
+            subscriber.mac_blocked_on_network = True
+            subscriber.save(update_fields=["status", "mac_blocked_on_network", "updated_at"])
+        return ok, "" if ok else "Erreur lors de la suspension RouterOS."
+    except RouterOSError as exc:
+        msg = str(exc)[:500]
+        log_router_action(device, "mac_block", target=mac or str(subscriber.pk),
+                          success=False, error_message=msg, dry_run=dry_run,
+                          performed_by=performed_by, ip_address=ip_address)
+        return False, msg
+
+
+def update_subscriber_speed(
+    subscriber,
+    speed_mbps: int,
+    *,
+    performed_by=None,
+    ip_address: str | None = None,
+) -> tuple[bool, str]:
+    """Modifie la vitesse via Simple Queue sur l'IP statique de l'abonné."""
+    device = subscriber.cpe_device
+    if device is None:
+        return False, "Aucun routeur MikroTik assigné."
+    ip = (str(subscriber.ip_static) if subscriber.ip_static else "").strip()
+    if not ip:
+        return False, "IP statique non renseignée pour l'abonné."
+
+    name = f"abonne-{subscriber.pk}"
+    max_rate = f"{speed_mbps}M"
+    comment = _subscriber_comment(subscriber.pk)
+    dry_run = bool(getattr(settings, "ROUTER_CONTROL_DRY_RUN", False))
+
+    try:
+        with RouterOSClient(device) as client:
+            ok, err = client.simple_queue_upsert(name, ip, max_rate, max_rate, comment)
+        log_router_action(
+            device, "other", target=ip,
+            command_sent=f"queue simple set name={name} target={ip} max-limit={max_rate}",
+            success=ok, error_message=err, dry_run=dry_run,
+            performed_by=performed_by, ip_address=ip_address,
+        )
+        return ok, err
+    except RouterOSError as exc:
+        msg = str(exc)[:500]
+        log_router_action(device, "other", target=ip, success=False,
+                          error_message=msg, dry_run=dry_run,
+                          performed_by=performed_by, ip_address=ip_address)
+        return False, msg
+
 
 def fetch_mikrotik_hotspot_active_users(device: NetworkDevice) -> set[str]:
     """Retourne les codes (usernames) actuellement connectés sur le hotspot."""

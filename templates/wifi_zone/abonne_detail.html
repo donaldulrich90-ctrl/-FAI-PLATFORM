@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}{{ subscriber.full_name }} — Abonné{% endblock %}
+{% block breadcrumb %}Abonnés / {{ subscriber.full_name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+  .info-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:16px; }
+  .info-item { display:flex; flex-direction:column; gap:4px; }
+  .info-label { font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+  .info-value { font-size:14px; color:var(--text); font-weight:500; }
+  .action-btn { display:flex; align-items:center; gap:8px; padding:10px 18px; border-radius:10px; font-size:13px; font-weight:600; border:none; cursor:pointer; transition:all .15s; }
+  .action-activer   { background:rgba(16,185,129,.2);  color:#10B981; }
+  .action-activer:hover   { background:rgba(16,185,129,.3); }
+  .action-suspendre { background:rgba(245,158,11,.2);  color:#F59E0B; }
+  .action-suspendre:hover { background:rgba(245,158,11,.3); }
+  .action-reactiver { background:rgba(6,182,212,.2);   color:#06B6D4; }
+  .action-reactiver:hover { background:rgba(6,182,212,.3); }
+  .prio-haute   { color:#EF4444; }
+  .prio-moyenne { color:#F59E0B; }
+  .prio-basse   { color:#10B981; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header anim-up" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+  <div style="display:flex;align-items:center;gap:14px;">
+    <a href="{% url 'wifi_zone:abonne_list' %}" class="btn btn-ghost btn-sm">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+    </a>
+    <div>
+      <h1 class="page-title">{{ subscriber.full_name }}</h1>
+      <p class="page-sub">{{ subscriber.phone }}{% if subscriber.site %} · {{ subscriber.site.name }}{% endif %}</p>
+    </div>
+  </div>
+  <span class="badge {% if subscriber.status == 'actif' %}badge-green{% elif subscriber.status == 'suspendu' %}badge-amber{% elif subscriber.status == 'expire' %}badge-red{% else %}badge-slate{% endif %}" style="font-size:13px;padding:6px 14px;">
+    {{ subscriber.get_status_display }}
+  </span>
+</div>
+
+<!-- Infos abonné -->
+<div class="card anim-up-1" style="padding:24px;margin-bottom:22px;">
+  <div class="section-head" style="margin-bottom:18px;">
+    <h2>Informations abonné</h2>
+  </div>
+  <div class="info-grid">
+    <div class="info-item">
+      <span class="info-label">Nom complet</span>
+      <span class="info-value">{{ subscriber.full_name }}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Téléphone</span>
+      <span class="info-value mono">{{ subscriber.phone|default:"—" }}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">WhatsApp</span>
+      <span class="info-value mono">{{ subscriber.effective_whatsapp_phone|default:"—" }}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Plan</span>
+      <span class="info-value">{% if subscriber.plan %}{{ subscriber.plan.name }} — {{ subscriber.plan.speed_mbps }} Mbps{% else %}—{% endif %}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Expiration</span>
+      <span class="info-value {% if subscriber.is_expiring_soon %}prio-moyenne{% endif %}">
+        {% if subscriber.expires_at %}{{ subscriber.expires_at|date:"d/m/Y" }}{% if subscriber.is_expiring_soon %} (J-{{ subscriber.days_until_expiry }}){% endif %}{% else %}—{% endif %}
+      </span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">IP statique</span>
+      <span class="info-value mono">{{ subscriber.ip_static|default:"—" }}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Adresse MAC</span>
+      <span class="info-value mono">{{ subscriber.mac_address|default:"—" }}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Site</span>
+      <span class="info-value">{{ subscriber.site.name|default:"—" }}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Quartier</span>
+      <span class="info-value">{{ subscriber.quartier|default:"—" }}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Adresse</span>
+      <span class="info-value">{{ subscriber.address|default:"—" }}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">GPS</span>
+      <span class="info-value mono">
+        {% if subscriber.latitude %}{{ subscriber.latitude }}, {{ subscriber.longitude }}{% else %}—{% endif %}
+      </span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Créé le</span>
+      <span class="info-value">{{ subscriber.created_at|date:"d/m/Y H:i"|default:"—" }}</span>
+    </div>
+  </div>
+</div>
+
+<!-- Actions -->
+<div class="card anim-up-2" style="padding:24px;margin-bottom:22px;">
+  <div class="section-head" style="margin-bottom:16px;">
+    <h2>Actions réseau</h2>
+    <span class="badge badge-slate" style="font-size:11px;">RouterOS</span>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;">
+    {% if subscriber.status != 'actif' %}
+    <button class="action-btn action-activer" onclick="doAction('activer')">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+      Activer
+    </button>
+    {% endif %}
+    {% if subscriber.status == 'actif' %}
+    <button class="action-btn action-suspendre" onclick="doAction('suspendre')">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      Suspendre
+    </button>
+    {% endif %}
+    {% if subscriber.status == 'suspendu' %}
+    <button class="action-btn action-reactiver" onclick="doAction('reactiver')">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+      Réactiver
+    </button>
+    {% endif %}
+
+    <!-- Modifier vitesse -->
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input type="number" id="speed-input" min="1" max="1000" placeholder="Mbps" style="width:90px;">
+      <button class="action-btn" style="background:rgba(201,151,44,.2);color:var(--primary);" onclick="doSpeedChange()">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        Vitesse
+      </button>
+    </div>
+  </div>
+  <div id="action-result" style="display:none;margin-top:14px;padding:12px 16px;border-radius:10px;font-size:13px;"></div>
+</div>
+
+<!-- Tickets plaintes -->
+<div class="card anim-up-3" style="padding:0;overflow:hidden;">
+  <div class="section-head" style="padding:18px 22px 0;">
+    <h2>Tickets plainte récents</h2>
+    <a href="{% url 'wifi_zone:ticket_plainte_list' %}?status=nouveau" class="btn btn-ghost btn-sm">Voir tous</a>
+  </div>
+  {% if tickets_plainte %}
+  <div style="overflow-x:auto;">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Référence</th>
+          <th>Priorité</th>
+          <th>Statut</th>
+          <th>Message</th>
+          <th>Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tickets_plainte %}
+        <tr>
+          <td class="mono" style="font-size:12px;font-weight:700;color:var(--primary);">{{ t.reference }}</td>
+          <td>
+            <span class="prio-{{ t.priority }}">
+              {% if t.priority == 'haute' %}🔴{% elif t.priority == 'moyenne' %}🟡{% else %}🟢{% endif %}
+              {{ t.get_priority_display }}
+            </span>
+          </td>
+          <td><span class="badge badge-slate" style="font-size:11px;">{{ t.get_status_display }}</span></td>
+          <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim);font-size:13px;">{{ t.message_original|truncatechars:80 }}</td>
+          <td style="color:var(--muted);font-size:12px;">{{ t.created_at|date:"d/m H:i" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state" style="padding:32px 0;">
+    <p style="color:var(--muted);font-size:13px;">Aucun ticket pour cet abonné.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const ACTION_URL = "{% url 'wifi_zone:abonne_action' subscriber.pk %}";
+const CSRF = getCsrf();
+
+async function doAction(action) {
+  const fd = new FormData();
+  fd.append('action', action);
+  fd.append('csrfmiddlewaretoken', CSRF);
+  try {
+    const r = await fetch(ACTION_URL, {method:'POST', body:fd});
+    const d = await r.json();
+    if (d.ok) {
+      showToast('Action "' + action + '" effectuée.', 'success');
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      showToast('Erreur : ' + (d.error || 'inconnue'), 'error');
+    }
+  } catch(e) {
+    showToast('Erreur réseau.', 'error');
+  }
+}
+
+async function doSpeedChange() {
+  const speed = parseInt(document.getElementById('speed-input').value);
+  if (!speed || speed <= 0) { showToast('Entrez une vitesse valide (Mbps).', 'error'); return; }
+  const fd = new FormData();
+  fd.append('action', 'modifier_vitesse');
+  fd.append('speed_mbps', speed);
+  fd.append('csrfmiddlewaretoken', CSRF);
+  try {
+    const r = await fetch(ACTION_URL, {method:'POST', body:fd});
+    const d = await r.json();
+    if (d.ok) {
+      showToast('Vitesse mise à jour : ' + speed + ' Mbps.', 'success');
+    } else {
+      showToast('Erreur : ' + (d.error || 'inconnue'), 'error');
+    }
+  } catch(e) {
+    showToast('Erreur réseau.', 'error');
+  }
+}
+</script>
+{% endblock %}

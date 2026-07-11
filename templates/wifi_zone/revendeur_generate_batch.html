@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Générer des tickets{% endblock %}
+{% block breadcrumb %}Wi-Fi / Mes Tickets{% endblock %}
+
+{% block content %}
+<div class="page-header anim-up">
+  <h1 class="page-title">Générer un lot de tickets</h1>
+  <p class="page-sub">Les tickets seront créés sur le MikroTik du site et imprimables immédiatement.</p>
+</div>
+
+<div class="anim-up-1" style="max-width:520px;">
+  <form method="post">
+    {% csrf_token %}
+    <div class="card" style="padding:28px;margin-bottom:20px;">
+      <div class="section-head" style="margin-bottom:20px;"><h2>Paramètres du lot</h2></div>
+
+      <div class="field">
+        <label>Site</label>
+        <select name="site_pk" required>
+          <option value="">— Choisir un site —</option>
+          {% for site in sites %}
+          <option value="{{ site.pk }}"{% if request.user.site_id == site.pk %} selected{% endif %}>{{ site.name }} ({{ site.site_id }})</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Durée</label>
+        <select name="duration" required>
+          {% for val, label in duration_choices %}
+          <option value="{{ val }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div class="field">
+          <label>Quantité</label>
+          <select name="quantity" required>
+            {% for q in quantity_choices %}
+            <option value="{{ q }}"{% if q == 10 %} selected{% endif %}>{{ q }} tickets</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label>Prix unitaire (XOF)</label>
+          <input type="number" name="unit_price" min="0" step="50" value="500" required style="width:100%!important;">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Profil MikroTik <span style="font-size:11px;color:var(--muted);">(optionnel — défaut selon durée)</span></label>
+        <input type="text" name="profile" placeholder="ex: Profil-2H" style="width:100%!important;">
+        <div class="help">Nom exact du profil /ip hotspot user profile sur le MikroTik.</div>
+      </div>
+    </div>
+
+    <div class="alert alert-info" style="margin-bottom:18px;">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      Les codes seront générés au format <strong>{{ request.user.ticket_prefix }}0001</strong>, <strong>{{ request.user.ticket_prefix }}0002</strong>…
+      avec un mot de passe aléatoire pour chaque ticket.
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-md" style="width:100%;">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+      Générer et pousser vers MikroTik
+    </button>
+  </form>
+</div>
+{% endblock %}

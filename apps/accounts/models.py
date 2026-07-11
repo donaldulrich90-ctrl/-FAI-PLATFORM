@@ -53,6 +53,23 @@ class User(AbstractUser):
         "Lettres majuscules et chiffres uniquement, 2 à 10 caractères. "
         "Les codes générés auront la forme PREFIX-XXXXXXXX.",
     )
+    site = models.ForeignKey(
+        "core.Site",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="revendeur_users",
+        verbose_name="Site rattaché",
+        help_text="Site principal du revendeur (pour la génération de tickets).",
+    )
+    balance_xof = models.DecimalField(
+        "Solde (XOF)",
+        max_digits=14,
+        decimal_places=0,
+        default=Decimal("0"),
+        validators=[MinValueValidator(Decimal("0"))],
+        help_text="Solde actuel du revendeur en Francs CFA.",
+    )
 
     class Meta:
         verbose_name = "utilisateur"

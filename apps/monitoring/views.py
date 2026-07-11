@@ -100,11 +100,42 @@ def dashboard(request: HttpRequest):
     ptp_geojson = {"type": "FeatureCollection", "features": ptp_features}
 
     kuma_summary = fetch_status_page_public_summary()
+    from django.conf import settings as _s
+    from apps.wifi_zone.models import WiFiSimpleSubscriber
+    # Abonnés avec GPS pour la carte
+    sub_qs = WiFiSimpleSubscriber.objects.filter(
+        latitude__isnull=False, longitude__isnull=False
+    ).select_related("site")
+    if not user_sees_all_tenants(user):
+        tid_filter = getattr(user, "tenant_id", None)
+        sub_qs = sub_qs.filter(site__tenant_id=tid_filter) if tid_filter else sub_qs.none()
+    subscribers_geojson = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {
+                    "name": s.full_name,
+                    "status": s.status,
+                    "plan": s.plan.name if s.plan else "",
+                    "expires_at": s.expires_at.strftime("%d/%m/%Y"),
+                    "pk": s.pk,
+                },
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [float(s.longitude), float(s.latitude)],
+                },
+            }
+            for s in sub_qs
+        ],
+    }
     context = {
         "sites": sites,
         "sites_geojson": json.dumps(sites_geojson, ensure_ascii=False),
         "ptp_geojson": json.dumps(ptp_geojson, ensure_ascii=False),
+        "subscribers_geojson": json.dumps(subscribers_geojson, ensure_ascii=False),
         "kuma_json": json.dumps(kuma_summary, ensure_ascii=False, indent=2),
+        "mapbox_token": getattr(_s, "MAPBOX_ACCESS_TOKEN", ""),
     }
     return render(request, "monitoring/dashboard.html", context)
 
@@ -165,6 +196,54 @@ def antenna_list(request: HttpRequest):
     return render(request, "monitoring/antenna_list.html", {
         "devices": devices,
         "recent_changes": recent_changes,
+    })
+
+
+@login_required
+@require_GET
+def antenna_snmp_api(request: HttpRequest, pk: int) -> JsonResponse:
+    """API JSON : métriques SNMP temps réel d'une antenne Ubiquiti."""
+    if not _admin_required(request):
+        return JsonResponse({"error": "Accès refusé."}, status=403)
+
+    user = request.user
+    device = get_object_or_404(NetworkDevice, pk=pk, vendor="ubiquiti", is_active=True)
+
+    if not user_sees_all_tenants(user):
+        tid = getattr(user, "tenant_id", None)
+        if not tid or device.site.tenant_id != tid:
+            return JsonResponse({"error": "Accès refusé."}, status=403)
+
+    from .services.snmp_ubiquiti import UbiquitiAirMAXSnmpService
+
+    svc = UbiquitiAirMAXSnmpService(host=device.management_host)
+    m = svc.fetch_full_metrics(check_ping=True)
+
+    def _fmt_uptime(s: int | None) -> str:
+        if s is None:
+            return "—"
+        days, rem = divmod(s, 86400)
+        hours, rem = divmod(rem, 3600)
+        mins = rem // 60
+        parts = []
+        if days:
+            parts.append(f"{days}j")
+        if hours:
+            parts.append(f"{hours}h")
+        parts.append(f"{mins}min")
+        return " ".join(parts)
+
+    return JsonResponse({
+        "online": m.online,
+        "freq_mhz": m.freq_mhz,
+        "tx_power_dbm": m.tx_power_dbm,
+        "client_count": m.client_count,
+        "avg_signal_dbm": m.avg_signal_dbm,
+        "throughput_in_mbps": m.throughput_in_mbps,
+        "throughput_out_mbps": m.throughput_out_mbps,
+        "uptime": _fmt_uptime(m.uptime_seconds),
+        "error": m.error,
+        "device_name": device.name,
     })
 
 
@@ -251,3 +330,133 @@ def antenna_freq_change(request: HttpRequest, pk: int):
         "confirm_step": False,
         "frequencies": ALLOWED_FREQUENCIES_5GHZ,
     })
+
+
+# ── Dashboard gestion intelligente des fréquences ────────────────────────────
+
+@login_required
+def frequency_dashboard(request: HttpRequest):
+    """Vue principale de gestion des fréquences Ubiquiti."""
+    if not _admin_required(request):
+        messages.error(request, "Accès réservé aux administrateurs.")
+        return redirect("monitoring:dashboard")
+
+    from .models import FrequenceConfig, HistoriqueFrequence
+
+    user = request.user
+    if user_sees_all_tenants(user):
+        devices = NetworkDevice.objects.filter(vendor="ubiquiti", is_active=True).select_related("site")
+    else:
+        tid = getattr(user, "tenant_id", None)
+        devices = (
+            NetworkDevice.objects.filter(vendor="ubiquiti", is_active=True, site__tenant_id=tid).select_related("site")
+            if tid
+            else NetworkDevice.objects.none()
+        )
+
+    # Enrichissement : config fréquence et dernier historique pour chaque antenne
+    device_rows = []
+    for dev in devices:
+        cfg = FrequenceConfig.objects.filter(device=dev).first()
+        last_change = HistoriqueFrequence.objects.filter(device=dev).first()
+        device_rows.append({
+            "device": dev,
+            "config": cfg,
+            "last_change": last_change,
+        })
+
+    recent_history = (
+        HistoriqueFrequence.objects.select_related("device")
+        .filter(device__in=devices)
+        [:30]
+    )
+
+    return render(request, "monitoring/frequency_dashboard.html", {
+        "device_rows": device_rows,
+        "recent_history": recent_history,
+        "frequencies": ALLOWED_FREQUENCIES_5GHZ,
+        "dry_run": getattr(__import__("django.conf", fromlist=["settings"]).settings, "ROUTER_CONTROL_DRY_RUN", False),
+    })
+
+
+@login_required
+@require_POST
+def frequency_config_save(request: HttpRequest, pk: int) -> JsonResponse:
+    """Crée ou met à jour la FrequenceConfig d'une antenne (AJAX)."""
+    if not _admin_required(request):
+        return JsonResponse({"ok": False, "error": "Accès refusé."}, status=403)
+
+    from .models import FrequenceConfig
+
+    device = get_object_or_404(NetworkDevice, pk=pk, vendor="ubiquiti", is_active=True)
+    if not user_sees_all_tenants(request.user):
+        tid = getattr(request.user, "tenant_id", None)
+        if not tid or device.site.tenant_id != tid:
+            return JsonResponse({"ok": False, "error": "Accès refusé."}, status=403)
+
+    def _intval(name, default=None):
+        v = request.POST.get(name, "").strip()
+        try:
+            return int(v) if v else default
+        except ValueError:
+            return default
+
+    cfg, _ = FrequenceConfig.objects.get_or_create(device=device)
+    cfg.freq_principale = _intval("freq_principale", cfg.freq_principale)
+    cfg.freq_secours_1 = _intval("freq_secours_1")
+    cfg.freq_secours_2 = _intval("freq_secours_2")
+    cfg.freq_secours_3 = _intval("freq_secours_3")
+    cfg.seuil_snr_min = _intval("seuil_snr_min", cfg.seuil_snr_min)
+    cfg.seuil_signal_min = _intval("seuil_signal_min", cfg.seuil_signal_min)
+    cfg.auto_switch = request.POST.get("auto_switch") == "1"
+    cfg.save()
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@require_POST
+def frequency_manual_change(request: HttpRequest, pk: int) -> JsonResponse:
+    """Déclenche un changement de fréquence manuel (AJAX)."""
+    if not _admin_required(request):
+        return JsonResponse({"ok": False, "error": "Accès refusé."}, status=403)
+
+    from .models import FrequenceConfig
+    from .frequency_decision import execute_frequency_change
+
+    device = get_object_or_404(NetworkDevice, pk=pk, vendor="ubiquiti", is_active=True)
+    if not user_sees_all_tenants(request.user):
+        tid = getattr(request.user, "tenant_id", None)
+        if not tid or device.site.tenant_id != tid:
+            return JsonResponse({"ok": False, "error": "Accès refusé."}, status=403)
+
+    freq_str = request.POST.get("freq_mhz", "").strip()
+    if not freq_str.isdigit():
+        return JsonResponse({"ok": False, "error": "Fréquence invalide."})
+
+    freq_mhz = int(freq_str)
+    cfg, _ = FrequenceConfig.objects.get_or_create(device=device, defaults={"freq_principale": freq_mhz})
+
+    ok = execute_frequency_change(
+        device=device,
+        config=cfg,
+        new_freq=freq_mhz,
+        raison="manuel",
+        declencheur="manuel",
+    )
+    return JsonResponse({"ok": ok})
+
+
+@login_required
+@require_POST
+def frequency_toggle_auto(request: HttpRequest, pk: int) -> JsonResponse:
+    """Active/désactive le basculement automatique pour une antenne (AJAX)."""
+    if not _admin_required(request):
+        return JsonResponse({"ok": False, "error": "Accès refusé."}, status=403)
+
+    from .models import FrequenceConfig
+
+    device = get_object_or_404(NetworkDevice, pk=pk, vendor="ubiquiti", is_active=True)
+    cfg, _ = FrequenceConfig.objects.get_or_create(device=device)
+    cfg.auto_switch = not cfg.auto_switch
+    cfg.save(update_fields=["auto_switch"])
+    return JsonResponse({"ok": True, "auto_switch": cfg.auto_switch})

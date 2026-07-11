@@ -52,6 +52,8 @@ INSTALLED_APPS = [
     "apps.wifi_zone",
     "apps.finance",
     "apps.monitoring",
+    "apps.notifications",
+    "apps.simulation",
     "django_q",
 ]
 
@@ -209,3 +211,19 @@ CINETPAY_SITE_ID = os.environ.get("CINETPAY_SITE_ID", "")
 CINETPAY_NOTIFY_URL = os.environ.get("CINETPAY_NOTIFY_URL", "")
 CINETPAY_RETURN_URL = os.environ.get("CINETPAY_RETURN_URL", "")
 CINETPAY_MODE = os.environ.get("CINETPAY_MODE", "TEST")  # TEST ou PRODUCTION
+
+# Mapbox GL JS (carte 3D satellite)
+MAPBOX_ACCESS_TOKEN = os.environ.get("MAPBOX_ACCESS_TOKEN", "")
+
+# WhatsApp via CallMeBot
+WHATSAPP_CALLMEBOT_APIKEY = os.environ.get("WHATSAPP_CALLMEBOT_APIKEY", "")
+WHATSAPP_DRY_RUN = _env_bool("WHATSAPP_DRY_RUN", "1")
+WHATSAPP_WEBHOOK_VERIFY_TOKEN = os.environ.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "faest-webhook-secret")
+WHATSAPP_ADMIN_NUMBER = os.environ.get("WHATSAPP_ADMIN_NUMBER", "")
+
+# Gestion intelligente des fréquences Ubiquiti
+FREQUENCY_AUTO_SWITCH = _env_bool("FREQUENCY_AUTO_SWITCH", "1")
+FREQUENCY_MIN_SNR = int(os.environ.get("FREQUENCY_MIN_SNR", "15"))
+FREQUENCY_MIN_SIGNAL = int(os.environ.get("FREQUENCY_MIN_SIGNAL", "-75"))
+FREQUENCY_CHANGE_COOLDOWN_MINUTES = int(os.environ.get("FREQUENCY_CHANGE_COOLDOWN_MINUTES", "15"))
+FREQUENCY_MAX_CHANGES_PER_HOUR = int(os.environ.get("FREQUENCY_MAX_CHANGES_PER_HOUR", "3"))

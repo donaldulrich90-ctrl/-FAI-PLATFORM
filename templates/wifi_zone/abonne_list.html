@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Abonnés Domicile{% endblock %}
+{% block breadcrumb %}Abonnés Domicile{% endblock %}
+
+{% block extra_head %}
+<style>
+  .status-badge-nouveau  { background:rgba(148,163,184,.15); color:#94A3B8; }
+  .status-badge-actif    { background:rgba(16,185,129,.15);  color:#10B981; }
+  .status-badge-suspendu { background:rgba(245,158,11,.15);  color:#F59E0B; }
+  .status-badge-expire   { background:rgba(239,68,68,.15);   color:#EF4444; }
+  .abonne-row { display:grid; grid-template-columns:1fr 130px 120px 160px 80px 110px; align-items:center; gap:12px; padding:14px 22px; border-bottom:1px solid rgba(255,255,255,.04); transition:background .15s; cursor:pointer; }
+  .abonne-row:hover { background:rgba(4,61,43,.12); }
+  .abonne-row:last-child { border-bottom:none; }
+  @media(max-width:768px){
+    .abonne-row { grid-template-columns:1fr 100px 80px; }
+    .abonne-row .col-plan,.abonne-row .col-mac,.abonne-row .col-expires { display:none; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header anim-up" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+  <div>
+    <h1 class="page-title">Abonnés Domicile</h1>
+    <p class="page-sub">Gestion des abonnés CPE/FTTH — activation, suspension et suivi.</p>
+  </div>
+  {% if expiring_soon > 0 %}
+  <span class="badge badge-amber" style="font-size:13px;padding:6px 14px;">
+    <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="vertical-align:-2px;margin-right:4px;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+    {{ expiring_soon }} expirant bientôt
+  </span>
+  {% endif %}
+</div>
+
+<!-- Filtres -->
+<form method="get" class="card anim-up-1" style="padding:16px 20px;margin-bottom:20px;display:flex;flex-wrap:wrap;align-items:center;gap:12px;">
+  <input name="q" value="{{ q }}" placeholder="Nom, téléphone, MAC…" style="flex:1;min-width:180px;max-width:280px;">
+  <select name="status" style="width:auto!important;min-width:150px;">
+    <option value="">Tous les statuts</option>
+    {% for val,label in status_choices %}
+    <option value="{{ val }}" {% if status_filter == val %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <select name="site" style="width:auto!important;min-width:160px;">
+    <option value="">Tous les sites</option>
+    {% for site in sites %}
+    <option value="{{ site.site_id }}" {% if site_filter == site.site_id %}selected{% endif %}>{{ site.name }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
+  {% if q or status_filter or site_filter %}
+  <a href="{% url 'wifi_zone:abonne_list' %}" class="btn btn-ghost btn-sm">Réinitialiser</a>
+  {% endif %}
+  <span style="margin-left:auto;font-size:13px;color:var(--muted);">{{ subscribers|length }} résultat{{ subscribers|length|pluralize }}</span>
+</form>
+
+<!-- Tableau -->
+<div class="card anim-up-2" style="overflow:hidden;padding:0;">
+  <div class="abonne-row" style="cursor:default;border-bottom:1px solid var(--border);">
+    <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Abonné</span>
+    <span class="col-plan" style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Plan</span>
+    <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Statut</span>
+    <span class="col-expires" style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Expiration</span>
+    <span class="col-mac" style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">GPS</span>
+    <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Actions</span>
+  </div>
+
+  {% for sub in subscribers %}
+  <div class="abonne-row" onclick="window.location.href='{% url 'wifi_zone:abonne_detail' sub.pk %}'">
+    <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+      <div class="icon-box" style="background:rgba(4,61,43,.2);flex-shrink:0;">
+        <svg width="15" height="15" fill="none" stroke="var(--green)" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+      </div>
+      <div style="min-width:0;">
+        <p style="font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ sub.full_name }}</p>
+        <p class="mono" style="font-size:11px;color:var(--muted);">{{ sub.phone }}</p>
+      </div>
+    </div>
+    <span class="col-plan" style="font-size:13px;color:var(--dim);">
+      {% if sub.plan %}{{ sub.plan.name }}{% else %}<span style="color:var(--muted);">—</span>{% endif %}
+    </span>
+    <span class="badge status-badge-{{ sub.status }}">{{ sub.get_status_display }}</span>
+    <div class="col-expires" style="min-width:0;">
+      {% if sub.expires_at %}
+        <p style="font-size:13px;color:{% if sub.is_expiring_soon %}var(--amber){% else %}var(--dim){% endif %};">
+          {{ sub.expires_at|date:"d/m/Y" }}
+        </p>
+        {% if sub.is_expiring_soon %}
+        <p style="font-size:11px;color:var(--amber);">J-{{ sub.days_until_expiry }}</p>
+        {% endif %}
+      {% else %}
+        <span style="color:var(--muted);">—</span>
+      {% endif %}
+    </div>
+    <div class="col-mac" style="text-align:center;">
+      {% if sub.latitude %}
+      <svg width="14" height="14" fill="var(--green)" viewBox="0 0 24 24" title="GPS disponible"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+      {% else %}
+      <svg width="14" height="14" fill="var(--muted)" viewBox="0 0 24 24" title="Pas de GPS"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+      {% endif %}
+    </div>
+    <div onclick="event.stopPropagation()">
+      <a href="{% url 'wifi_zone:abonne_detail' sub.pk %}" class="btn btn-ghost btn-sm" style="padding:5px 10px;">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+        Voir
+      </a>
+    </div>
+  </div>
+  {% empty %}
+  <div class="empty-state" style="padding:48px 0;">
+    <svg width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+    <p>Aucun abonné trouvé{% if q %} pour « {{ q }} »{% endif %}.</p>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

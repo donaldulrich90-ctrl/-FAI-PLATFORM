@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Impression tickets — {{ batch.label }}{% endblock %}
+{% block breadcrumb %}Wi-Fi / Impression{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── CSS IMPRESSION ── */
+  @media print {
+    .sidebar, .topbar, .page-header, .no-print, .sidebar-user { display: none !important; }
+    .main-wrap { margin-left: 0 !important; }
+    .page-content { padding: 0 !important; }
+    body { background: white !important; color: #000 !important; }
+    .ticket-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6mm; padding: 6mm; }
+    .ticket-card { break-inside: avoid; page-break-inside: avoid; }
+    .print-header { display: block !important; }
+  }
+  @media screen {
+    .ticket-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    @media (max-width: 1024px) { .ticket-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 640px)  { .ticket-grid { grid-template-columns: 1fr; } }
+    .print-header { display: none; }
+  }
+
+  .ticket-card {
+    border: 1.5px dashed #334155;
+    border-radius: 10px;
+    padding: 14px;
+    background: #0f172a;
+    min-width: 0;
+  }
+  @media print {
+    .ticket-card { border: 1px dashed #999; background: #fff; color: #000; border-radius: 4px; }
+  }
+  .ticket-site  { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: #10b981; margin-bottom: 4px; }
+  .ticket-ssid  { font-size: 9px; color: #64748b; margin-bottom: 8px; }
+  .ticket-label { font-size: 9px; color: #64748b; margin-bottom: 2px; }
+  .ticket-value { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; color: #f1f5f9; word-break: break-all; }
+  @media print { .ticket-value { color: #000; } .ticket-site { color: #059669; } }
+  .ticket-meta  { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 6px; border-top: 1px solid #1e293b; }
+  @media print { .ticket-meta { border-top-color: #ddd; } }
+  .ticket-duration { font-size: 10px; font-weight: 700; color: #10b981; }
+  .ticket-price    { font-size: 10px; color: #64748b; }
+  .ticket-logo     { font-size: 8px; color: #64748b; text-align: right; margin-top: 4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Contrôles (non imprimés) -->
+<div class="no-print" style="margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+  <div>
+    <h1 class="page-title">{{ batch.label }}</h1>
+    <p class="page-sub">{{ tickets|length }} ticket{{ tickets|length|pluralize }} — {{ duration_label }} — {{ batch.unit_price_xof|floatformat:0 }} XOF/ticket</p>
+  </div>
+  <div style="display:flex;gap:10px;">
+    <button onclick="window.print()" class="btn btn-success btn-md">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+      Imprimer
+    </button>
+    <a href="{% url 'wifi_zone:print_batch_pdf' batch.pk %}" class="btn btn-primary btn-md">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+      Télécharger PDF
+    </a>
+    <a href="{% url 'wifi_zone:revendeur_dashboard' %}" class="btn btn-ghost btn-md">Retour</a>
+  </div>
+</div>
+
+<!-- En-tête imprimé -->
+<div class="print-header" style="text-align:center;margin-bottom:6mm;">
+  <div style="font-size:14pt;font-weight:bold;">GOOD ENGINEERS / FAEST</div>
+  <div style="font-size:10pt;">{{ batch.site.name }} — {{ duration_label }} — {{ batch.unit_price_xof|floatformat:0 }} FCFA</div>
+</div>
+
+<!-- Grille tickets -->
+<div class="ticket-grid">
+  {% for ticket in tickets %}
+  <div class="ticket-card">
+    <div class="ticket-site">{{ ticket.site.name }}</div>
+    <div class="ticket-ssid">SSID : {{ ssid }}</div>
+
+    <div class="ticket-label">Nom d'utilisateur</div>
+    <div class="ticket-value">{{ ticket.code }}</div>
+
+    <div class="ticket-label" style="margin-top:6px;">Mot de passe</div>
+    <div class="ticket-value">{{ ticket.hotspot_password|default:ticket.code }}</div>
+
+    <div class="ticket-meta">
+      <span class="ticket-duration">⏱ {{ ticket.get_duration_display }}</span>
+      <span class="ticket-price">{{ ticket.price_xof|floatformat:0 }} XOF</span>
+    </div>
+    <div class="ticket-logo">GOOD ENGINEERS / FAEST</div>
+  </div>
+  {% empty %}
+  <div class="empty-state"><p>Aucun ticket dans ce lot.</p></div>
+  {% endfor %}
+</div>
+{% endblock %}

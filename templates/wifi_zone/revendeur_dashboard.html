@@ -70,6 +70,55 @@
   </p>
 </div>
 
+<!-- Actions rapides -->
+<div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;" class="anim-up-2">
+  <a href="{% url 'wifi_zone:revendeur_generate_batch' %}" class="btn btn-primary btn-md">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+    Générer des tickets
+  </a>
+</div>
+
+<!-- Lots récents -->
+{% if recent_batches %}
+<div class="card anim-up-3" style="padding:0;overflow:hidden;margin-bottom:24px;">
+  <div class="section-head" style="padding:18px 24px 0;">
+    <h2>Lots récents</h2>
+    <span class="badge badge-slate">10 derniers</span>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Libellé</th>
+          <th>Site</th>
+          <th>Durée</th>
+          <th style="text-align:right;">Qté</th>
+          <th style="text-align:right;">Prix unit.</th>
+          <th>Créé le</th>
+          <th style="text-align:center;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for batch in recent_batches %}
+        <tr>
+          <td style="font-weight:600;color:var(--text);">{{ batch.label|truncatechars:30 }}</td>
+          <td style="color:var(--dim);">{{ batch.site.name }}</td>
+          <td><span class="badge badge-slate">{{ batch.get_duration_display }}</span></td>
+          <td style="text-align:right;" class="mono">{{ batch.quantity }}</td>
+          <td style="text-align:right;" class="mono">{{ batch.unit_price_xof|floatformat:0 }} XOF</td>
+          <td style="font-size:12px;color:var(--muted);">{{ batch.created_at|date:"d/m/Y H:i" }}</td>
+          <td style="text-align:center;white-space:nowrap;">
+            <a href="{% url 'wifi_zone:revendeur_print' batch.pk %}" class="btn btn-ghost btn-sm">Imprimer</a>
+            <a href="{% url 'wifi_zone:print_batch_pdf' batch.pk %}" class="btn btn-primary btn-sm" style="margin-left:6px;">PDF</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 <!-- Dernières ventes -->
 <div class="card anim-up-3" style="padding:0;overflow:hidden;">
   <div class="section-head" style="padding:18px 24px 0;">
