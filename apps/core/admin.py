@@ -130,8 +130,7 @@ class NetworkDeviceAdmin(TenantScopedFKAdminMixin, TenantScopedSiteFKAdminMixin,
         ),
         (
             "MikroTik",
-            {"fields": ("mikrotik_bridge_name",)},
-        ),
+            {"fields": ("mikrotik_bridge_name", "parent_mikrotik", "mikrotik_interface")},
     )
     readonly_fields = ("password_status",)
 
