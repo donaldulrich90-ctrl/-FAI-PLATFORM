@@ -81,11 +81,9 @@ def _connect_airos(device: "NetworkDevice") -> paramiko.SSHClient:
     if not username:
         raise UbiquitiSSHError("aireos_username non configuré sur cette antenne.")
 
-    key_path = (getattr(settings, "MIKROTIK_SSH_KEY_PATH", "") or "").strip()
-    if not key_path:
-        raise UbiquitiSSHError("MIKROTIK_SSH_KEY_PATH non configuré.")
-    if not os.path.isfile(key_path):
-        raise UbiquitiSSHError(f"Clé SSH introuvable : {key_path}")
+    password = os.environ.get("AIREOS_SSH_PASSWORD", "").strip()
+    if not password:
+        raise UbiquitiSSHError("AIREOS_SSH_PASSWORD non configuré dans l'environnement.")
 
     timeout = int(getattr(settings, "MIKROTIK_SSH_TIMEOUT", SSH_TIMEOUT))
     client = _build_ssh_client()
@@ -94,7 +92,7 @@ def _connect_airos(device: "NetworkDevice") -> paramiko.SSHClient:
             hostname=parent.management_host,
             port=device.ssh_forward_port,
             username=username,
-            key_filename=key_path,
+            password=password,
             look_for_keys=False,
             allow_agent=False,
             timeout=timeout,
