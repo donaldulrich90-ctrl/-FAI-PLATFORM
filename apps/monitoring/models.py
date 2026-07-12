@@ -14,6 +14,7 @@ class RouterAuditLog(models.Model):
         HOTSPOT_REMOVE = "hotspot_remove", "Suppression hotspot"
         HOTSPOT_DISCONNECT = "hotspot_disconnect", "Déconnexion session active"
         HOTSPOT_BATCH = "hotspot_batch", "Génération lot tickets"
+        IP_BINDING = "ip_binding", "IP Binding hotspot"
         FREQ_CHANGE = "freq_change", "Changement fréquence"
         PPPOE_CHECK = "pppoe_check", "Vérification PPPoE"
         OTHER = "other", "Autre"

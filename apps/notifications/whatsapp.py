@@ -83,6 +83,45 @@ def msg_ticket_reponse(ticket_numero: str) -> str:
     )
 
 
+def msg_activation_revendeur(nom: str, date_expiration: str, montant: str) -> str:
+    return (
+        f"✅ Bonjour {nom}\n"
+        f"Votre accès revendeur FAEST a été activé.\n"
+        f"Abonnement valide jusqu'au {date_expiration}.\n"
+        f"Montant mensuel : {montant} XOF\n"
+        f"📞 +226 64 79 24 70 - FAEST EQUIPEMENTS"
+    )
+
+
+def msg_rappel_revendeur_j3(nom: str, date_expiration: str, montant: str) -> str:
+    return (
+        f"⚠️ Bonjour {nom}\n"
+        f"Votre abonnement revendeur FAEST expire dans 3 jours le {date_expiration}.\n"
+        f"Montant : {montant} XOF\n"
+        f"Pour renouveler : +226 64 79 24 70\n"
+        f"- FAEST EQUIPEMENTS"
+    )
+
+
+def msg_suspension_revendeur(nom: str, date_expiration: str, montant: str) -> str:
+    return (
+        f"🔴 Bonjour {nom}\n"
+        f"Votre abonnement revendeur FAEST a expiré le {date_expiration}.\n"
+        f"Votre accès Internet et hotspot a été suspendu.\n"
+        f"Pour rétablir : {montant} XOF → +226 64 79 24 70\n"
+        f"- FAEST EQUIPEMENTS"
+    )
+
+
+def msg_renouvellement_revendeur(nom: str, nouvelle_date: str) -> str:
+    return (
+        f"✅ Bonjour {nom}\n"
+        f"Votre abonnement revendeur FAEST a été renouvelé.\n"
+        f"Accès valide jusqu'au {nouvelle_date}.\n"
+        f"Bonne connexion ! 🌐 - FAEST EQUIPEMENTS"
+    )
+
+
 def msg_alerte_frequence_admin(
     nom_antenne: str,
     site: str,

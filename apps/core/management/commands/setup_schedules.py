@@ -34,6 +34,27 @@ SCHEDULES = [
         "repeats": -1,
     },
     {
+        "name": "Vérification abonnements revendeurs",
+        "func": "apps.accounts.tasks.check_revendeur_subscriptions",
+        "schedule_type": "C",
+        "cron": "0 8 * * *",  # 08h00 chaque matin
+        "repeats": -1,
+    },
+    {
+        "name": "Rappels paiement abonnés domicile",
+        "func": "apps.wifi_zone.tasks.check_payment_alerts",
+        "schedule_type": "C",
+        "cron": "0 8 * * *",  # 08h00 chaque matin
+        "repeats": -1,
+    },
+    {
+        "name": "Suspension automatique abonnés expirés",
+        "func": "apps.wifi_zone.tasks.auto_kick_expired_subscribers",
+        "schedule_type": "C",
+        "cron": "0 * * * *",  # toutes les heures
+        "repeats": -1,
+    },
+    {
         "name": "Surveillance fréquences Ubiquiti",
         "func": "apps.monitoring.tasks.monitor_frequencies",
         "schedule_type": "C",

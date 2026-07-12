@@ -14,6 +14,11 @@ class User(AbstractUser):
         TECHNICIAN = "technician", "Technicien"
         REVENDEUR = "revendeur", "Revendeur"
 
+    class RevendeurStatut(models.TextChoices):
+        ACTIF = "actif", "Actif"
+        SUSPENDU = "suspendu", "Suspendu"
+        EXPIRE = "expire", "Expiré"
+
     role = models.CharField(
         max_length=20,
         choices=Role.choices,
@@ -69,6 +74,43 @@ class User(AbstractUser):
         default=Decimal("0"),
         validators=[MinValueValidator(Decimal("0"))],
         help_text="Solde actuel du revendeur en Francs CFA.",
+    )
+
+    # ── Champs abonnement revendeur ───────────────────────────────────────────
+    mac_antenne = models.CharField(
+        "MAC antenne (CPE revendeur)",
+        max_length=17,
+        blank=True,
+        help_text="Format AA:BB:CC:DD:EE:FF — utilisé pour l'ip-binding hotspot.",
+    )
+    mikrotik = models.ForeignKey(
+        "core.NetworkDevice",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="revendeurs_connectes",
+        verbose_name="MikroTik revendeur",
+        limit_choices_to={"vendor": "mikrotik", "is_active": True},
+    )
+    date_expiration = models.DateField(
+        "Date d'expiration abonnement",
+        null=True,
+        blank=True,
+    )
+    statut_revendeur = models.CharField(
+        "Statut revendeur",
+        max_length=16,
+        choices=RevendeurStatut.choices,
+        blank=True,
+        default="",
+    )
+    montant_abonnement_xof = models.DecimalField(
+        "Montant abonnement (XOF/mois)",
+        max_digits=12,
+        decimal_places=0,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0"))],
     )
 
     class Meta:

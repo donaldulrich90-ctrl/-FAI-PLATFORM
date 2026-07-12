@@ -386,6 +386,70 @@ class RouterOSClient:
                 entries.append(entry)
         return entries
 
+    # ── opérations ip-binding hotspot (revendeurs) ───────────────────────────
+
+    def ip_binding_upsert(self, mac: str, binding_type: str, comment: str) -> tuple[bool, str]:
+        """
+        Crée ou remplace une entrée /ip hotspot ip-binding (idempotent).
+        binding_type : "bypassed" | "regular" | "blocked"
+        """
+        if self._mode == "dry_run":
+            logger.info(
+                "[DRY-RUN] ip_binding_upsert mac=%s type=%s on %s",
+                mac, binding_type, self.device.management_host,
+            )
+            return True, ""
+
+        self._ip_binding_remove_by_comment(comment)
+
+        safe_mac = re.sub(r"[^0-9a-fA-F:]", "", mac)
+        safe_type = re.sub(r"[^a-z]", "", binding_type)
+
+        if self._mode == "api":
+            try:
+                self._api(
+                    "/ip/hotspot/ip-binding/add",
+                    **{"mac-address": safe_mac},
+                    type=safe_type,
+                    comment=comment,
+                )
+                return True, ""
+            except Exception as exc:
+                msg = str(exc)[:500]
+                logger.error("ip_binding_upsert API mac=%s type=%s : %s", mac, binding_type, msg)
+                return False, msg
+
+        safe_comment = comment.replace('"', "")
+        cmd = (
+            f'/ip hotspot ip-binding add mac-address="{safe_mac}" '
+            f'type={safe_type} comment="{safe_comment}"'
+        )
+        rc, out, err = self._ssh_exec(cmd)
+        if rc != 0:
+            msg = (err or out or "erreur SSH").strip()[:500]
+            logger.error("ip_binding_upsert SSH mac=%s rc=%s : %s", mac, rc, msg)
+            return False, msg
+        return True, ""
+
+    def _ip_binding_remove_by_comment(self, comment: str) -> bool:
+        """Supprime les ip-binding portant ce commentaire (silencieux si absent)."""
+        if self._mode == "dry_run":
+            return True
+        if self._mode == "api":
+            try:
+                rows = self._api("/ip/hotspot/ip-binding/print", **{"?comment": comment})
+                for row in rows:
+                    self._api("/ip/hotspot/ip-binding/remove", **{".id": row[".id"]})
+                return True
+            except Exception as exc:
+                logger.warning("_ip_binding_remove_by_comment API comment=%s : %s", comment, exc)
+                return False
+        safe_comment = comment.replace('"', "")
+        rc, out, err = self._ssh_exec(
+            f'/ip hotspot ip-binding remove [find comment="{safe_comment}"]'
+        )
+        return _ros_remove_ok(rc, out, err)
+
     # ── opérations bridge filter (blocage MAC) ────────────────────────────────
 
     # ── address-list (abonnés domicile) ──────────────────────────────────────────
