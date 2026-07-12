@@ -207,13 +207,15 @@ class PlanAbonnement(models.Model):
         verbose_name="Organisation",
     )
     name = models.CharField("Nom du plan", max_length=128)
-    speed_mbps = models.PositiveIntegerField("Débit (Mbps)", default=2)
+    speed_mbps = models.PositiveIntegerField("Débit download (Mbps)", default=2)
+    upload_mbps = models.PositiveIntegerField("Débit upload (Mbps)", default=2)
     price_xof = models.DecimalField(
         "Prix mensuel (XOF)",
         max_digits=12,
         decimal_places=0,
         validators=[MinValueValidator(0)],
     )
+    profil_mikrotik = models.CharField("Profil MikroTik", max_length=64, blank=True)
     description = models.TextField("Description", blank=True)
     is_active = models.BooleanField("Actif", default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -224,7 +226,7 @@ class PlanAbonnement(models.Model):
         ordering = ["price_xof"]
 
     def __str__(self) -> str:
-        return f"{self.name} — {self.speed_mbps} Mbps — {self.price_xof} XOF"
+        return f"{self.name} — {self.speed_mbps}↓/{self.upload_mbps}↑ Mbps — {self.price_xof} XOF"
 
 
 class WiFiSimpleSubscriber(models.Model):

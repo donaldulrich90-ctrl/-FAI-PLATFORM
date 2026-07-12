@@ -4,7 +4,21 @@ from django.utils.html import format_html
 
 from apps.tenants.admin_mixins import TenantScopedFKAdminMixin, TenantScopedSiteFKAdminMixin
 
-from .models import Ticket, WifiTicketBatch, WiFiSimpleSubscriber
+from .models import PlanAbonnement, Ticket, WifiTicketBatch, WiFiSimpleSubscriber
+
+
+@admin.register(PlanAbonnement)
+class PlanAbonnementAdmin(TenantScopedFKAdminMixin, admin.ModelAdmin):
+    list_display = ("name", "speed_mbps", "upload_mbps", "price_xof", "profil_mikrotik", "is_active")
+    list_filter = ("is_active",)
+    search_fields = ("name", "profil_mikrotik")
+    list_editable = ("is_active",)
+    fieldsets = (
+        (None, {"fields": ("tenant", "name", "is_active")}),
+        ("Débit", {"fields": ("speed_mbps", "upload_mbps")}),
+        ("Tarif & MikroTik", {"fields": ("price_xof", "profil_mikrotik")}),
+        ("Notes", {"fields": ("description",)}),
+    )
 
 
 @admin.register(WifiTicketBatch)
@@ -50,10 +64,29 @@ class WiFiSimpleSubscriberAdmin(TenantScopedFKAdminMixin, TenantScopedSiteFKAdmi
         "full_name",
         "phone",
         "mac_address",
+        "plan_name",
+        "plan_vitesse",
+        "plan_prix",
+        "status",
         "expires_at",
         "site",
         "is_payment_current",
         "mac_blocked_on_network",
     )
-    list_filter = ("site", "is_payment_current", "mac_blocked_on_network")
+    list_filter = ("site", "status", "plan", "is_payment_current", "mac_blocked_on_network")
     search_fields = ("full_name", "phone", "mac_address")
+    list_select_related = ("plan", "site")
+
+    @admin.display(description="Plan", ordering="plan__name")
+    def plan_name(self, obj):
+        return obj.plan.name if obj.plan else "—"
+
+    @admin.display(description="Vitesse")
+    def plan_vitesse(self, obj):
+        if obj.plan:
+            return f"{obj.plan.speed_mbps}↓/{obj.plan.upload_mbps}↑ Mbps"
+        return "—"
+
+    @admin.display(description="Prix/mois", ordering="plan__price_xof")
+    def plan_prix(self, obj):
+        return f"{int(obj.plan.price_xof)} XOF" if obj.plan else "—"
