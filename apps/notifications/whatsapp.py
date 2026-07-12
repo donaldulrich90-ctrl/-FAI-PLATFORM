@@ -44,6 +44,16 @@ def msg_rappel_j1(nom: str, date_expiration: str, prix: str) -> str:
     )
 
 
+def msg_rappel_j2(nom: str, date_expiration: str, plan: str, prix: str) -> str:
+    return (
+        f"⏰ Bonjour {nom}\n"
+        f"Votre abonnement Internet FAEST expire dans 2 jours le {date_expiration}.\n"
+        f"Plan : {plan} - {prix}/mois\n"
+        f"Pour renouveler : +226 64 79 24 70\n"
+        f"💚 FAEST EQUIPEMENTS"
+    )
+
+
 def msg_suspension(nom: str, date_expiration: str, prix: str) -> str:
     return (
         f"🔴 Bonjour {nom}\n"

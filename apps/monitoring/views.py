@@ -1,4 +1,5 @@
 import json
+import re
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -11,6 +12,14 @@ from apps.core.models import NetworkDevice, PtPLink, Site
 from apps.tenants.access import user_sees_all_tenants
 
 from .audit import log_router_action
+
+_MAC_VALIDATE_RE = re.compile(r"^[0-9a-fA-F:]{17}$")
+
+
+def _norm_mac(mac: str) -> str:
+    """Normalise une adresse MAC en minuscules avec séparateurs (:) pour la comparaison."""
+    clean = re.sub(r"[^0-9a-fA-F]", "", mac).lower()
+    return ":".join(clean[i:i+2] for i in range(0, 12, 2)) if len(clean) == 12 else mac.lower()
 from .models import DeviceConfigChange
 from .services.ubiquiti_ssh import (
     ALLOWED_FREQUENCIES_5GHZ,
@@ -219,12 +228,31 @@ def antenna_snmp_api(request: HttpRequest, pk: int) -> JsonResponse:
         from .services.ubiquiti_ssh_monitor import UbiquitiSSHService
 
         m = UbiquitiSSHService(device=device).fetch_metrics()
+
+        # Enrichissement : abonné correspondant à chaque MAC (une seule requête)
+        from functools import reduce
+        from operator import or_
+        from apps.wifi_zone.models import WiFiSimpleSubscriber
+        client_macs = [c.mac for c in m.clients if c.mac]
+        sub_by_mac: dict = {}
+        if client_macs:
+            q = reduce(or_, [Q(mac_address__iexact=mac) for mac in client_macs])
+            for s in WiFiSimpleSubscriber.objects.filter(q).select_related("plan"):
+                sub_by_mac[_norm_mac(s.mac_address)] = {
+                    "pk": s.pk,
+                    "name": s.full_name,
+                    "status": s.status,
+                    "plan": s.plan.name if s.plan else None,
+                    "expires_at": s.expires_at.strftime("%d/%m/%Y") if s.expires_at else None,
+                }
+
         clients_data = [
             {
                 "mac": c.mac,
                 "signal_dbm": c.signal_dbm,
                 "tx_rate_mbps": c.tx_rate_mbps,
                 "rx_rate_mbps": c.rx_rate_mbps,
+                "subscriber": sub_by_mac.get(_norm_mac(c.mac)),
             }
             for c in m.clients
         ]
@@ -486,6 +514,53 @@ def frequency_manual_change(request: HttpRequest, pk: int) -> JsonResponse:
         declencheur="manuel",
     )
     return JsonResponse({"ok": ok})
+
+
+@login_required
+@require_POST
+def antenna_kick_station(request: HttpRequest, pk: int) -> JsonResponse:
+    """Déconnecte un client CPE via `kick sta <MAC>` sur l'antenne airOS."""
+    if not _admin_required(request):
+        return JsonResponse({"ok": False, "error": "Accès refusé."}, status=403)
+
+    device = get_object_or_404(NetworkDevice, pk=pk, vendor="ubiquiti", is_active=True)
+
+    if not user_sees_all_tenants(request.user):
+        tid = getattr(request.user, "tenant_id", None)
+        if not tid or device.site.tenant_id != tid:
+            return JsonResponse({"ok": False, "error": "Accès refusé."}, status=403)
+
+    mac = request.POST.get("mac", "").strip()
+    if not _MAC_VALIDATE_RE.match(mac):
+        return JsonResponse({"ok": False, "error": "Format MAC invalide."})
+
+    from django.conf import settings as django_settings
+    dry_run = getattr(django_settings, "ROUTER_CONTROL_DRY_RUN", False)
+
+    if dry_run:
+        log_router_action(
+            device, "hotspot_disconnect",
+            target=mac, command_sent=f"kick sta {mac}",
+            success=True, dry_run=True,
+            performed_by=request.user,
+            ip_address=request.META.get("REMOTE_ADDR"),
+        )
+        return JsonResponse({"ok": True, "dry_run": True, "output": f"[DRY RUN] kick sta {mac}"})
+
+    from .services.ubiquiti_ssh_monitor import kick_station
+    result = kick_station(device, mac)
+
+    log_router_action(
+        device, "hotspot_disconnect",
+        target=mac, command_sent=f"kick sta {mac}",
+        success=result["ok"],
+        error_message="" if result["ok"] else result.get("error", ""),
+        dry_run=False,
+        performed_by=request.user,
+        ip_address=request.META.get("REMOTE_ADDR"),
+    )
+
+    return JsonResponse(result)
 
 
 @login_required

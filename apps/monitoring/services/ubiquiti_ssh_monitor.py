@@ -74,19 +74,24 @@ def _build_ssh_client() -> paramiko.SSHClient:
     return client
 
 
+# Prompts shell connus — XC# (Rocket Prism, NanoStation…), WA# (LiteAP AC, Wave AP…)
+_SHELL_PROMPTS = ["XC#", "WA#"]
+
+
 def _run_aireos_command_pexpect(
-    host: str, port: int, username: str, password: str, command: str, timeout: int = 20
+    host: str, port: int, username: str, password: str, command: str,
+    timeout: int = 20, prompt: str | None = None,
 ) -> tuple[str, str]:
     """
     Exécute une commande airOS via pexpect — gère le comportement airOS v8.x :
 
     1. SSH → "password:" → envoi du mot de passe
     2. airOS répond "Permission denied, please try again." puis redemande "password:"
-    3. Renvoi du même mot de passe → connexion acceptée → prompt "XC#"
-    4. Envoi de la commande, lecture de la sortie jusqu'au prochain "XC#"
+    3. Renvoi du même mot de passe → connexion acceptée → prompt shell (XC# ou WA#)
+    4. Envoi de la commande, lecture de la sortie jusqu'au prochain prompt
 
-    Le premier refus est normal sur ce firmware — on n'abandonne que si le
-    deuxième essai échoue aussi.
+    Le prompt est détecté automatiquement via child.expect(['XC#', 'WA#']) et
+    réutilisé pour toute la session (variable shell_prompt).
     """
     ssh_cmd = (
         f"ssh -p {port} "
@@ -95,6 +100,7 @@ def _run_aireos_command_pexpect(
         f"-o PubkeyAuthentication=no "
         f"{username}@{host}"
     )
+    shell_prompt: str = prompt or "XC#"  # valeur par défaut, écrasée à la détection
     try:
         child = pexpect.spawn(ssh_cmd, timeout=timeout, encoding="utf-8")
 
@@ -103,26 +109,37 @@ def _run_aireos_command_pexpect(
         child.sendline(password)
 
         # Deuxième interaction : soit refus + nouveau prompt, soit succès direct
-        i = child.expect(["password:", "XC#", pexpect.TIMEOUT, pexpect.EOF])
+        # i=0 → password: (refus)  i=1 → XC#  i=2 → WA#  i=3 → TIMEOUT  i=4 → EOF
+        i = child.expect(["password:", "XC#", "WA#", pexpect.TIMEOUT, pexpect.EOF])
         if i == 0:
             # Premier refus normal (Permission denied) — renvoyer le même mot de passe
             child.sendline(password)
-            # Attendre le prompt XC# — ignorer le message NOTICE (peut contenir "denied")
-            j = child.expect(["XC#", pexpect.TIMEOUT, pexpect.EOF], timeout=30)
-            if j != 0:
+            # Détecter le prompt automatiquement — ignorer le message NOTICE (peut contenir "denied")
+            j = child.expect(["XC#", "WA#", pexpect.TIMEOUT, pexpect.EOF], timeout=30)
+            if j == 0:
+                shell_prompt = "XC#"
+            elif j == 1:
+                shell_prompt = "WA#"
+            else:
                 child.close(force=True)
                 raise UbiquitiSSHError(
                     f"pexpect airOS ({host}:{port}) : authentification échouée après deux essais."
                 )
-        elif i != 1:
+        elif i == 1:
+            shell_prompt = "XC#"
+        elif i == 2:
+            shell_prompt = "WA#"
+        else:
             child.close(force=True)
             raise UbiquitiSSHError(
                 f"pexpect airOS ({host}:{port}) : timeout ou EOF lors de la connexion."
             )
 
-        # Connecté — envoyer la commande et lire la sortie
+        logger.debug("pexpect airOS (%s:%s) prompt détecté : %s", host, port, shell_prompt)
+
+        # Connecté — envoyer la commande et lire la sortie avec le prompt détecté
         child.sendline(command)
-        child.expect("XC#", timeout=10)
+        child.expect(shell_prompt, timeout=10)
         output: str = child.before or ""
         child.close()
 
@@ -139,13 +156,14 @@ def _run_aireos_command_pexpect(
 
 
 def _run_aireos_command(
-    host: str, port: int, username: str, password: str, command: str, timeout: int = 15
+    host: str, port: int, username: str, password: str, command: str,
+    timeout: int = 15, prompt: str | None = None,
 ) -> tuple[str, str]:
     """
     Exécute une commande airOS avec fallback automatique :
 
     1. paramiko  — firmwares récents (algorithmes SSH modernes)
-    2. pexpect   — vieux firmwares airOS v8.x (double prompt password + shell XC#)
+    2. pexpect   — vieux firmwares airOS v8.x (double prompt password + shell XC#/WA#)
     3. raise UbiquitiSSHError si les deux échouent
     """
     # Méthode 1 : paramiko
@@ -173,8 +191,8 @@ def _run_aireos_command(
             "paramiko airOS (%s:%s) échec (%s) — tentative pexpect", host, port, exc
         )
 
-    # Méthode 2 : pexpect (double prompt airOS v8.x)
-    return _run_aireos_command_pexpect(host, port, username, password, command, timeout)
+    # Méthode 2 : pexpect (double prompt airOS v8.x, prompt XC# ou WA#)
+    return _run_aireos_command_pexpect(host, port, username, password, command, timeout, prompt)
 
 
 def _parse_iwconfig(output: str) -> dict:
@@ -294,9 +312,14 @@ class UbiquitiSSHService:
         host = parent.management_host
         port = self.device.ssh_forward_port
         timeout = int(getattr(settings, "AIREOS_SSH_TIMEOUT", SSH_TIMEOUT))
+        prompt = (getattr(self.device, "aireos_prompt", None) or "").strip() or None
+
+        def _cmd(command: str) -> str:
+            out, _ = _run_aireos_command(host, port, username, password, command, timeout, prompt)
+            return out
 
         try:
-            iwconfig_out, _ = _run_aireos_command(host, port, username, password, "iwconfig ath0", timeout)
+            iwconfig_out = _cmd("iwconfig ath0")
             m.online = True
 
             parsed = _parse_iwconfig(iwconfig_out)
@@ -305,16 +328,14 @@ class UbiquitiSSHService:
             m.tx_power_dbm = parsed.get("tx_power_dbm")
             m.signal_dbm = parsed.get("signal_dbm")
 
-            wsta_out, _ = _run_aireos_command(host, port, username, password, "wstalist", timeout)
-            m.clients = _parse_wstalist(wsta_out)
+            m.clients = _parse_wstalist(_cmd("wstalist"))
             m.client_count = len(m.clients)
 
             signals = [c.signal_dbm for c in m.clients if c.signal_dbm is not None]
             if signals:
                 m.avg_signal_dbm = round(sum(signals) / len(signals))
 
-            proc_out, _ = _run_aireos_command(host, port, username, password, "cat /proc/net/dev", timeout)
-            m.rx_mb, m.tx_mb = _parse_proc_net_dev(proc_out)
+            m.rx_mb, m.tx_mb = _parse_proc_net_dev(_cmd("cat /proc/net/dev"))
 
         except UbiquitiSSHError as exc:
             m.error = str(exc)[:200]
@@ -324,3 +345,44 @@ class UbiquitiSSHService:
             logger.exception("UbiquitiSSH inattendu (%s)", self.device)
 
         return m
+
+
+_MAC_RE = re.compile(r"^[0-9a-fA-F:]{17}$")
+
+
+def kick_station(device: "NetworkDevice", mac: str) -> dict:
+    """
+    Envoie `kick sta <MAC>` sur l'antenne airOS pour déconnecter un client CPE.
+    Retourne {"ok": True, "output": "..."} ou {"ok": False, "error": "..."}.
+    """
+    if not _MAC_RE.match(mac):
+        return {"ok": False, "error": f"Format MAC invalide : {mac!r}"}
+
+    parent = device.parent_mikrotik
+    if parent is None or not parent.is_active:
+        return {"ok": False, "error": "Pas de MikroTik parent actif configuré."}
+    if not device.ssh_forward_port:
+        return {"ok": False, "error": "ssh_forward_port non configuré."}
+
+    username = (device.aireos_username or "").strip()
+    if not username:
+        return {"ok": False, "error": "aireos_username non configuré."}
+
+    password = os.environ.get("AIREOS_SSH_PASSWORD", "").strip()
+    if not password:
+        return {"ok": False, "error": "AIREOS_SSH_PASSWORD non configuré."}
+
+    host = parent.management_host
+    port = device.ssh_forward_port
+    timeout = int(getattr(settings, "AIREOS_SSH_TIMEOUT", SSH_TIMEOUT))
+    prompt = (getattr(device, "aireos_prompt", None) or "").strip() or None
+
+    try:
+        out, _ = _run_aireos_command(host, port, username, password, f"kick sta {mac}", timeout, prompt)
+        logger.info("kick sta %s sur %s : %s", mac, device, out)
+        return {"ok": True, "output": out}
+    except UbiquitiSSHError as exc:
+        return {"ok": False, "error": str(exc)[:200]}
+    except Exception as exc:
+        logger.exception("kick_station inattendu (%s)", device)
+        return {"ok": False, "error": f"Erreur inattendue : {exc}"[:200]}

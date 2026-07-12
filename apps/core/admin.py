@@ -140,7 +140,7 @@ class NetworkDeviceAdmin(TenantScopedFKAdminMixin, TenantScopedSiteFKAdminMixin,
                     "Renseignez le port forwardé (ex. 2222) et le username airOS. "
                     "Si configuré, les métriques temps réel (fréquence, clients, TX) utilisent ce canal."
                 ),
-                "fields": ("ssh_forward_port", "aireos_username"),
+                "fields": ("ssh_forward_port", "aireos_username", "aireos_prompt"),
             },
         ),
     )

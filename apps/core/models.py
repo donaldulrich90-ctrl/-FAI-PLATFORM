@@ -169,6 +169,12 @@ class NetworkDevice(models.Model):
         blank=True,
         help_text="Username SSH pour la connexion directe à l'antenne airOS (ex. AdminFasoEq).",
     )
+    aireos_prompt = models.CharField(
+        "Prompt shell airOS",
+        max_length=8,
+        default="XC#",
+        help_text="Prompt du shell interactif airOS : XC# (Rocket Prism, NanoStation…) ou WA# (LiteAP AC, Wave AP…).",
+    )
     is_active = models.BooleanField(default=True)
 
     class Meta:

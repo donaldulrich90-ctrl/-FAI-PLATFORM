@@ -70,9 +70,11 @@
           <thead>
             <tr>
               <th style="text-align:left;">MAC</th>
+              <th style="text-align:left;">Abonné</th>
               <th style="text-align:right;">Signal</th>
               <th style="text-align:right;">TX</th>
               <th style="text-align:right;">RX</th>
+              <th></th>
             </tr>
           </thead>
           <tbody id="clients-tbody-{{ dev.pk }}"></tbody>
@@ -213,13 +215,24 @@ async function refreshDevice(pk) {
       clientsSection.style.display = 'block';
       document.getElementById(`clients-toggle-label-${pk}`).textContent =
         `Voir ${d.clients.length} client(s)`;
-      clientsTbody.innerHTML = d.clients.map(c => `
-        <tr>
-          <td class="mono">${c.mac || '—'}</td>
+      clientsTbody.innerHTML = d.clients.map(c => {
+        const sub = c.subscriber;
+        let subCell = '<span style="color:var(--muted);font-size:11px;">Inconnu</span>';
+        if (sub) {
+          const sc = sub.status === 'actif' ? 'var(--green)' : sub.status === 'suspendu' ? 'var(--amber)' : 'var(--red)';
+          subCell = `<div style="font-size:11px;font-weight:600;color:var(--text);">${sub.name}</div>`
+                  + `<div style="font-size:10px;color:${sc};">${sub.status}${sub.plan ? ' · ' + sub.plan : ''}${sub.expires_at ? ' · ' + sub.expires_at : ''}</div>`;
+        }
+        const kickBtn = `<button class="btn btn-ghost btn-sm" style="font-size:10px;color:var(--red);white-space:nowrap;" onclick="kickStation(${pk},'${c.mac}')">Déconnecter</button>`;
+        return `<tr>
+          <td class="mono" style="font-size:11px;">${c.mac || '—'}</td>
+          <td>${subCell}</td>
           <td style="text-align:right;color:${signalColor(c.signal_dbm)};">${c.signal_dbm != null ? c.signal_dbm + ' dBm' : '—'}</td>
           <td style="text-align:right;" class="mono">${c.tx_rate_mbps != null ? c.tx_rate_mbps + ' Mbps' : '—'}</td>
           <td style="text-align:right;" class="mono">${c.rx_rate_mbps != null ? c.rx_rate_mbps + ' Mbps' : '—'}</td>
-        </tr>`).join('');
+          <td style="text-align:right;">${kickBtn}</td>
+        </tr>`;
+      }).join('');
     } else {
       clientsSection.style.display = 'none';
     }
@@ -232,6 +245,27 @@ async function refreshDevice(pk) {
     }
   } catch(e) {
     console.warn('SNMP fetch error device', pk, e);
+  }
+}
+
+async function kickStation(devicePk, mac) {
+  if (!confirm(`Déconnecter ${mac} de l'antenne ?\nCela coupera la connexion Wi-Fi du client.`)) return;
+  const csrfToken = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || '';
+  try {
+    const resp = await fetch(`/antennes/${devicePk}/kick/`, {
+      method: 'POST',
+      headers: {'X-CSRFToken': csrfToken, 'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'mac=' + encodeURIComponent(mac),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      alert(data.dry_run ? `[TEST] kick sta ${mac} simulé.` : `Client ${mac} déconnecté.`);
+      refreshDevice(devicePk);
+    } else {
+      alert(`Erreur : ${data.error}`);
+    }
+  } catch (e) {
+    alert('Erreur réseau lors de la déconnexion.');
   }
 }
 
