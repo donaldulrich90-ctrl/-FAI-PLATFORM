@@ -78,14 +78,15 @@ def _run_aireos_command_pexpect(
     host: str, port: int, username: str, password: str, command: str, timeout: int = 20
 ) -> tuple[str, str]:
     """
-    Exécute une commande airOS via pexpect — gère le double prompt password des
-    vieux firmwares airOS v8.x qui rejettent silencieusement la première tentative.
+    Exécute une commande airOS via pexpect — gère le comportement airOS v8.x :
 
-    Séquence attendue :
-      1. SSH → premier "password:" → envoi du mot de passe (souvent refusé)
-      2. Deuxième "password:" → renvoi du mot de passe (accepté)
-      3. Prompt "XC#" → shell interactif ouvert
-      4. Envoi de la commande, lecture de la sortie jusqu'au prochain "XC#"
+    1. SSH → "password:" → envoi du mot de passe
+    2. airOS répond "Permission denied, please try again." puis redemande "password:"
+    3. Renvoi du même mot de passe → connexion acceptée → prompt "XC#"
+    4. Envoi de la commande, lecture de la sortie jusqu'au prochain "XC#"
+
+    Le premier refus est normal sur ce firmware — on n'abandonne que si le
+    deuxième essai échoue aussi.
     """
     ssh_cmd = (
         f"ssh -p {port} "
@@ -94,51 +95,41 @@ def _run_aireos_command_pexpect(
         f"-o PubkeyAuthentication=no "
         f"{username}@{host}"
     )
-    child = pexpect.spawn(ssh_cmd, timeout=timeout, encoding="utf-8")
+    try:
+        child = pexpect.spawn(ssh_cmd, timeout=timeout, encoding="utf-8")
 
-    # Premier prompt mot de passe (souvent refusé par airOS v8.x)
-    i = child.expect(["password:", "XC#", pexpect.EOF, pexpect.TIMEOUT])
-    if i == 0:
+        # Premier prompt — toujours présent
+        child.expect("password:")
         child.sendline(password)
-    elif i == 1:
-        pass  # authentification sans mot de passe (rare)
-    else:
-        child.close(force=True)
-        raise UbiquitiSSHError(
-            f"pexpect airOS ({host}:{port}) : aucun prompt reçu au démarrage (EOF/timeout)."
-        )
 
-    # Deuxième prompt mot de passe (le vrai)
-    i = child.expect(["password:", "XC#", "denied", pexpect.EOF, pexpect.TIMEOUT])
-    if i == 0:
-        child.sendline(password)
-    elif i == 1:
-        pass  # déjà au shell après le premier mot de passe
-    elif i == 2:
-        child.close(force=True)
-        raise UbiquitiSSHError(
-            f"pexpect airOS ({host}:{port}) : authentification refusée (denied)."
-        )
-    else:
-        child.close(force=True)
-        raise UbiquitiSSHError(
-            f"pexpect airOS ({host}:{port}) : EOF/timeout après deuxième prompt password."
-        )
-
-    # Si le deuxième mot de passe a été envoyé, attendre le prompt XC#
-    if i == 0:
-        j = child.expect(["XC#", "denied", pexpect.EOF, pexpect.TIMEOUT], timeout=10)
-        if j != 0:
+        # Deuxième interaction : soit refus + nouveau prompt, soit succès direct
+        i = child.expect(["password:", "XC#", pexpect.TIMEOUT, pexpect.EOF])
+        if i == 0:
+            # Premier refus normal (Permission denied) — renvoyer le même mot de passe
+            child.sendline(password)
+            # Attendre le résultat final
+            j = child.expect(["XC#", "denied", pexpect.TIMEOUT, pexpect.EOF], timeout=10)
+            if j != 0:
+                child.close(force=True)
+                raise UbiquitiSSHError(
+                    f"pexpect airOS ({host}:{port}) : authentification échouée après deux essais."
+                )
+        elif i != 1:
             child.close(force=True)
             raise UbiquitiSSHError(
-                f"pexpect airOS ({host}:{port}) : prompt XC# non obtenu après authentification."
+                f"pexpect airOS ({host}:{port}) : timeout ou EOF lors de la connexion."
             )
 
-    # Envoyer la commande et récupérer la sortie
-    child.sendline(command)
-    child.expect(["XC#", pexpect.EOF, pexpect.TIMEOUT], timeout=10)
-    output = child.before or ""
-    child.close()
+        # Connecté — envoyer la commande et lire la sortie
+        child.sendline(command)
+        child.expect("XC#", timeout=10)
+        output: str = child.before or ""
+        child.close()
+
+    except pexpect.TIMEOUT:
+        raise UbiquitiSSHError(f"pexpect airOS ({host}:{port}) : timeout ({timeout}s).")
+    except pexpect.EOF:
+        raise UbiquitiSSHError(f"pexpect airOS ({host}:{port}) : connexion fermée prématurément.")
 
     # Supprimer l'écho de la commande en première ligne
     lines = output.strip().splitlines()
