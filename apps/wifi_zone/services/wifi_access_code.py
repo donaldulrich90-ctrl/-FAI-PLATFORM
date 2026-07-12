@@ -92,9 +92,6 @@ class WifiAccessCodeService:
         if not prefix:
             raise ValueError("Le revendeur doit avoir un préfixe de ticket configuré.")
 
-        existing_count = Ticket.objects.filter(code__startswith=prefix).count()
-        start_num = existing_count + 1
-
         batch = WifiTicketBatch.objects.create(
             label=f"Lot revendeur {prefix} — {quantity} tickets",
             site=site,
@@ -105,23 +102,24 @@ class WifiAccessCodeService:
         )
 
         tickets: list[Ticket] = []
-        passwords: dict[str, str] = {}
+        codes_reserved: set[str] = set()
 
-        for i in range(quantity):
-            num = start_num + i
-            code = f"{prefix}{num:04d}"
-            for attempt in range(10):
-                if not Ticket.objects.filter(code=code).exists():
+        for _ in range(quantity):
+            # Mikhmon style: PREFIX + 4 random digits, e.g. SOR1234
+            for attempt in range(self.MAX_COLLISION_RETRIES):
+                code = f"{prefix}{secrets.randbelow(10000):04d}"
+                if code not in codes_reserved and not Ticket.objects.filter(code=code).exists():
                     break
-                num += 1
-                code = f"{prefix}{num:04d}"
-
-            pwd = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
-            passwords[code] = pwd
+            else:
+                raise RuntimeError(
+                    f"Impossible de générer un code unique pour le préfixe '{prefix}' "
+                    f"après {self.MAX_COLLISION_RETRIES} tentatives (espace saturé)."
+                )
+            codes_reserved.add(code)
 
             ticket = Ticket(
                 code=code,
-                hotspot_password=pwd,
+                hotspot_password="",  # Mikhmon : username = password = code
                 duration=duration,
                 price_xof=unit_price_xof,
                 site=site,
@@ -154,9 +152,10 @@ class WifiAccessCodeService:
                 try:
                     with RouterOSClient(device) as client:
                         for ticket in tickets:
-                            ok, err = client.hotspot_user_add(
+                            # Mikhmon : username = password = code (idempotent)
+                            ok, err = client.hotspot_user_upsert(
                                 name=ticket.code,
-                                password=passwords[ticket.code],
+                                password=ticket.code,
                                 profile=profile,
                                 limit_uptime=limit_uptime,
                                 comment=f"faso-revendeur-{prefix}",
@@ -170,7 +169,7 @@ class WifiAccessCodeService:
                         device,
                         "hotspot_batch",
                         target=f"{prefix} x{quantity}",
-                        command_sent=f"hotspot user add x{quantity} profile={profile}",
+                        command_sent=f"hotspot user upsert x{quantity} profile={profile}",
                         success=not failed,
                         error_message="; ".join(failed[:3]),
                         dry_run=dry_run,

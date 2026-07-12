@@ -78,11 +78,9 @@
     <div class="ticket-site">{{ ticket.site.name }}</div>
     <div class="ticket-ssid">SSID : {{ ssid }}</div>
 
-    <div class="ticket-label">Nom d'utilisateur</div>
+    <div class="ticket-label">CODE WIFI</div>
     <div class="ticket-value">{{ ticket.code }}</div>
-
-    <div class="ticket-label" style="margin-top:6px;">Mot de passe</div>
-    <div class="ticket-value">{{ ticket.hotspot_password|default:ticket.code }}</div>
+    <div class="ticket-label" style="margin-top:4px;font-style:italic;">Entrez ce code sur la page WiFi</div>
 
     <div class="ticket-meta">
       <span class="ticket-duration">⏱ {{ ticket.get_duration_display }}</span>

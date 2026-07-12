@@ -101,10 +101,20 @@ def generate_tickets_pdf(tickets: list, title: str = "Tickets Wi-Fi Zone") -> by
             prix_str = f"{int(ticket.price_xof):,} XOF".replace(",", " ")
             c.drawRightString(text_right, y + TICKET_H - 0.7 * cm, prix_str)
 
+            # Label "CODE WIFI"
+            c.setFont("Helvetica", 7)
+            c.setFillColor(colors.HexColor("#64748b"))
+            c.drawString(text_x, y + TICKET_H / 2 + 0.3 * cm, "CODE WIFI")
+
             # Code
             c.setFont("Helvetica-Bold", 13)
             c.setFillColor(colors.white)
             c.drawString(text_x, y + TICKET_H / 2 - 0.1 * cm, ticket.code)
+
+            # Instruction
+            c.setFont("Helvetica", 6)
+            c.setFillColor(colors.HexColor("#64748b"))
+            c.drawString(text_x, y + 0.85 * cm, "Entrez ce code sur la page WiFi")
 
             # Site
             site_label = ticket.site.name if ticket.site else ""
