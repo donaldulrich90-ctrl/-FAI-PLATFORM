@@ -1,14 +1,18 @@
 """
 Monitoring des antennes Ubiquiti airOS via SSH port-forwarding à travers le MikroTik parent.
 
-Connexion : paramiko → parent_mikrotik.management_host:device.ssh_forward_port
-                      (le MikroTik NAT-forwardé ce port vers l'IP airOS de l'antenne)
-Authentification : clé SSH MIKROTIK_SSH_KEY_PATH + device.aireos_username
+Connexion : MikroTik parent.management_host:device.ssh_forward_port
+            (le MikroTik NAT-forwarde ce port vers l'IP airOS de l'antenne)
+Authentification : mot de passe via AIREOS_SSH_PASSWORD
+
+Méthode de connexion — fallback automatique :
+  1. paramiko  → firmwares airOS récents
+  2. sshpass   → vieux firmwares airOS v8.x (algorithmes SSH anciens)
 
 Commandes airOS exécutées :
-  - iwconfig ath0              → fréquence, débit, puissance TX, signal
-  - wstalist                   → JSON clients (MAC, signal, débit)
-  - cat /proc/net/dev          → octets RX/TX sur ath0
+  - iwconfig ath0     → fréquence, débit, puissance TX, signal
+  - wstalist          → JSON clients (MAC, signal, débit)
+  - cat /proc/net/dev → octets RX/TX sur ath0
 """
 from __future__ import annotations
 
@@ -16,6 +20,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -27,7 +32,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-SSH_TIMEOUT = 20
+SSH_TIMEOUT = 15
 
 
 class UbiquitiSSHError(Exception):
@@ -68,50 +73,79 @@ def _build_ssh_client() -> paramiko.SSHClient:
     return client
 
 
-def _connect_airos(device: "NetworkDevice") -> paramiko.SSHClient:
-    """Ouvre une session SSH vers l'antenne airOS via le port forwardé du MikroTik parent."""
-    parent = device.parent_mikrotik
-    if parent is None or not parent.is_active:
-        raise UbiquitiSSHError("Pas de MikroTik parent actif configuré pour cette antenne.")
+def _exec_sshpass(
+    host: str, port: int, username: str, password: str, command: str, timeout: int
+) -> tuple[str, str]:
+    """
+    Exécute une commande airOS via sshpass (fallback pour vieux firmwares v8.x).
 
-    if not device.ssh_forward_port:
-        raise UbiquitiSSHError("ssh_forward_port non configuré sur cette antenne.")
-
-    username = (device.aireos_username or "").strip()
-    if not username:
-        raise UbiquitiSSHError("aireos_username non configuré sur cette antenne.")
-
-    password = os.environ.get("AIREOS_SSH_PASSWORD", "").strip()
-    if not password:
-        raise UbiquitiSSHError("AIREOS_SSH_PASSWORD non configuré dans l'environnement.")
-
-    timeout = int(getattr(settings, "AIREOS_SSH_TIMEOUT", 15))
-    client = _build_ssh_client()
+    Utilise une liste d'arguments (pas shell=True) pour éviter l'injection de commandes.
+    """
     try:
-        client.connect(
-            hostname=parent.management_host,
-            port=device.ssh_forward_port,
-            username=username,
-            password=password,
-            look_for_keys=False,
-            allow_agent=False,
-            timeout=timeout,
-            disabled_algorithms={"pubkeys": ["rsa-sha2-256", "rsa-sha2-512"]},
+        result = subprocess.run(
+            [
+                "sshpass", "-p", password,
+                "ssh",
+                "-p", str(port),
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "PubkeyAuthentication=no",
+                f"{username}@{host}",
+                command,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout + 5,
         )
-    except Exception as exc:
-        client.close()
+        return result.stdout.strip(), result.stderr.strip()
+    except FileNotFoundError:
         raise UbiquitiSSHError(
-            f"SSH airOS ({parent.management_host}:{device.ssh_forward_port}) : {exc}"
-        ) from exc
-    return client
+            "sshpass introuvable — vérifiez que sshpass est installé (apt-get install -y sshpass)."
+        )
+    except subprocess.TimeoutExpired:
+        raise UbiquitiSSHError(f"Timeout sshpass ({timeout}s) sur {host}:{port}.")
+    except Exception as exc:
+        raise UbiquitiSSHError(f"sshpass ({host}:{port}) : {exc}") from exc
 
 
-def _exec(client: paramiko.SSHClient, cmd: str) -> tuple[str, str]:
-    timeout = int(getattr(settings, "MIKROTIK_SSH_TIMEOUT", SSH_TIMEOUT))
-    _, stdout, stderr = client.exec_command(cmd, timeout=timeout)
-    out = stdout.read().decode("utf-8", errors="replace").strip()
-    err = stderr.read().decode("utf-8", errors="replace").strip()
-    return out, err
+def _run_aireos_command(
+    host: str, port: int, username: str, password: str, command: str, timeout: int = 15
+) -> tuple[str, str]:
+    """
+    Exécute une commande airOS avec fallback automatique :
+
+    1. Essai paramiko (firmwares récents)
+       - disabled_algorithms force le handshake vers ssh-rsa (SHA-1) accepté par airOS
+    2. Si AuthenticationException ou SSHException → sshpass subprocess (vieux airOS v8.x)
+    3. Si les deux échouent → raise UbiquitiSSHError
+    """
+    # Méthode 1 : paramiko
+    try:
+        client = _build_ssh_client()
+        try:
+            client.connect(
+                hostname=host,
+                port=port,
+                username=username,
+                password=password,
+                look_for_keys=False,
+                allow_agent=False,
+                timeout=timeout,
+                disabled_algorithms={"pubkeys": ["rsa-sha2-256", "rsa-sha2-512"]},
+            )
+            _, stdout, stderr = client.exec_command(command, timeout=timeout)
+            out = stdout.read().decode("utf-8", errors="replace").strip()
+            err = stderr.read().decode("utf-8", errors="replace").strip()
+            return out, err
+        finally:
+            client.close()
+    except (paramiko.AuthenticationException, paramiko.SSHException) as exc:
+        logger.info(
+            "paramiko airOS (%s:%s) échec (%s) — tentative sshpass", host, port, exc
+        )
+
+    # Méthode 2 : sshpass
+    return _exec_sshpass(host, port, username, password, command, timeout)
 
 
 def _parse_iwconfig(output: str) -> dict:
@@ -184,10 +218,8 @@ def _parse_proc_net_dev(output: str, iface: str = "ath0") -> tuple[float | None,
     """
     Parse `cat /proc/net/dev` pour extraire RX/TX bytes de l'interface donnée.
 
-    Format de ligne :
-      ath0:  9876543  12345 ...  3456789  ...
-    Colonnes : rx_bytes, rx_pkts, rx_errs, rx_drop, rx_fifo, rx_frame, rx_compressed, rx_multicast,
-               tx_bytes, tx_pkts, ...
+    Colonnes : rx_bytes, rx_pkts, rx_errs, rx_drop, rx_fifo, rx_frame,
+               rx_compressed, rx_multicast, tx_bytes, tx_pkts, ...
     """
     for line in output.splitlines():
         line = line.strip()
@@ -212,19 +244,39 @@ class UbiquitiSSHService:
 
     def fetch_metrics(self) -> AirOSMetrics:
         m = AirOSMetrics()
-        client: paramiko.SSHClient | None = None
+
+        # Validation de la config avant toute tentative SSH
+        parent = self.device.parent_mikrotik
+        if parent is None or not parent.is_active:
+            m.error = "Pas de MikroTik parent actif configuré pour cette antenne."
+            return m
+        if not self.device.ssh_forward_port:
+            m.error = "ssh_forward_port non configuré sur cette antenne."
+            return m
+        username = (self.device.aireos_username or "").strip()
+        if not username:
+            m.error = "aireos_username non configuré sur cette antenne."
+            return m
+        password = os.environ.get("AIREOS_SSH_PASSWORD", "").strip()
+        if not password:
+            m.error = "AIREOS_SSH_PASSWORD non configuré dans l'environnement."
+            return m
+
+        host = parent.management_host
+        port = self.device.ssh_forward_port
+        timeout = int(getattr(settings, "AIREOS_SSH_TIMEOUT", SSH_TIMEOUT))
+
         try:
-            client = _connect_airos(self.device)
+            iwconfig_out, _ = _run_aireos_command(host, port, username, password, "iwconfig ath0", timeout)
             m.online = True
 
-            iwconfig_out, _ = _exec(client, "iwconfig ath0")
             parsed = _parse_iwconfig(iwconfig_out)
             m.freq_mhz = parsed.get("freq_mhz")
             m.tx_rate_mbps = parsed.get("tx_rate_mbps")
             m.tx_power_dbm = parsed.get("tx_power_dbm")
             m.signal_dbm = parsed.get("signal_dbm")
 
-            wsta_out, _ = _exec(client, "wstalist")
+            wsta_out, _ = _run_aireos_command(host, port, username, password, "wstalist", timeout)
             m.clients = _parse_wstalist(wsta_out)
             m.client_count = len(m.clients)
 
@@ -232,7 +284,7 @@ class UbiquitiSSHService:
             if signals:
                 m.avg_signal_dbm = round(sum(signals) / len(signals))
 
-            proc_out, _ = _exec(client, "cat /proc/net/dev")
+            proc_out, _ = _run_aireos_command(host, port, username, password, "cat /proc/net/dev", timeout)
             m.rx_mb, m.tx_mb = _parse_proc_net_dev(proc_out)
 
         except UbiquitiSSHError as exc:
@@ -241,8 +293,5 @@ class UbiquitiSSHService:
         except Exception as exc:
             m.error = f"Erreur inattendue : {exc}"[:200]
             logger.exception("UbiquitiSSH inattendu (%s)", self.device)
-        finally:
-            if client is not None:
-                client.close()
 
         return m
