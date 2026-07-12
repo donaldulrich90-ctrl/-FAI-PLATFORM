@@ -132,6 +132,17 @@ class NetworkDeviceAdmin(TenantScopedFKAdminMixin, TenantScopedSiteFKAdminMixin,
             "MikroTik",
             {"fields": ("mikrotik_bridge_name", "parent_mikrotik", "mikrotik_interface")},
         ),
+        (
+            "Ubiquiti airOS — SSH direct (port forwarding)",
+            {
+                "description": (
+                    "Connexion SSH directe à l'antenne via le port-forwarding du MikroTik parent. "
+                    "Renseignez le port forwardé (ex. 2222) et le username airOS. "
+                    "Si configuré, les métriques temps réel (fréquence, clients, TX) utilisent ce canal."
+                ),
+                "fields": ("ssh_forward_port", "aireos_username"),
+            },
+        ),
     )
     readonly_fields = ("password_status",)
 

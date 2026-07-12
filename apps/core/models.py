@@ -156,6 +156,19 @@ class NetworkDevice(models.Model):
         help_text="Port bridge du MikroTik connecté à cette antenne (ex. ether5). "
         "Utilisé pour compter les clients bridge.",
     )
+    ssh_forward_port = models.PositiveIntegerField(
+        "Port SSH forwarding airOS",
+        null=True,
+        blank=True,
+        help_text="Port de forwarding SSH configuré sur le MikroTik parent vers cette antenne airOS (ex. 2222). "
+        "Si renseigné, la connexion SSH directe à l'antenne est utilisée pour les métriques.",
+    )
+    aireos_username = models.CharField(
+        "Username airOS",
+        max_length=64,
+        blank=True,
+        help_text="Username SSH pour la connexion directe à l'antenne airOS (ex. AdminFasoEq).",
+    )
     is_active = models.BooleanField(default=True)
 
     class Meta:

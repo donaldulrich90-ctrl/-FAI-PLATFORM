@@ -214,6 +214,38 @@ def antenna_snmp_api(request: HttpRequest, pk: int) -> JsonResponse:
         if not tid or device.site.tenant_id != tid:
             return JsonResponse({"error": "Accès refusé."}, status=403)
 
+    # Chemin 1 : SSH direct airOS via port-forwarding MikroTik
+    if device.ssh_forward_port:
+        from .services.ubiquiti_ssh_monitor import UbiquitiSSHService
+
+        m = UbiquitiSSHService(device=device).fetch_metrics()
+        clients_data = [
+            {
+                "mac": c.mac,
+                "signal_dbm": c.signal_dbm,
+                "tx_rate_mbps": c.tx_rate_mbps,
+                "rx_rate_mbps": c.rx_rate_mbps,
+            }
+            for c in m.clients
+        ]
+        return JsonResponse({
+            "online": m.online,
+            "freq_mhz": m.freq_mhz,
+            "tx_power_dbm": m.tx_power_dbm,
+            "tx_rate_mbps": m.tx_rate_mbps,
+            "client_count": m.client_count,
+            "avg_signal_dbm": m.avg_signal_dbm,
+            "throughput_in_mbps": m.rx_mb,
+            "throughput_out_mbps": m.tx_mb,
+            "uptime": "—",
+            "error": m.error,
+            "device_name": device.name,
+            "neighbor_seen": None,
+            "clients": clients_data,
+            "source": "airos_ssh",
+        })
+
+    # Chemin 2 : métriques via RouterOS SSH sur le MikroTik parent (fallback)
     parent = device.parent_mikrotik
     if parent is None or not parent.is_active:
         return JsonResponse({
@@ -227,6 +259,8 @@ def antenna_snmp_api(request: HttpRequest, pk: int) -> JsonResponse:
             "uptime": "—",
             "error": "Pas de MikroTik parent configuré pour cette antenne.",
             "device_name": device.name,
+            "clients": [],
+            "source": "none",
         })
 
     from .services.mikrotik_ssh_monitor import MikrotikSshMonitorService
@@ -241,6 +275,7 @@ def antenna_snmp_api(request: HttpRequest, pk: int) -> JsonResponse:
         "online": m.online,
         "freq_mhz": None,
         "tx_power_dbm": None,
+        "tx_rate_mbps": None,
         "client_count": m.client_count,
         "avg_signal_dbm": m.avg_signal_dbm,
         "throughput_in_mbps": None,
@@ -249,6 +284,8 @@ def antenna_snmp_api(request: HttpRequest, pk: int) -> JsonResponse:
         "error": m.error,
         "device_name": device.name,
         "neighbor_seen": m.neighbor_seen,
+        "clients": [],
+        "source": "mikrotik_ssh",
     })
 
 
