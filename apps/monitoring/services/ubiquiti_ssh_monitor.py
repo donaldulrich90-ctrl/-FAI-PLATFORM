@@ -7,7 +7,8 @@ Authentification : mot de passe via AIREOS_SSH_PASSWORD
 
 Méthode de connexion — fallback automatique :
   1. paramiko  → firmwares airOS récents
-  2. sshpass   → vieux firmwares airOS v8.x (algorithmes SSH anciens)
+  2. pexpect   → vieux firmwares airOS v8.x (double prompt password + shell XC#)
+  3. raise UbiquitiSSHError si les deux échouent
 
 Commandes airOS exécutées :
   - iwconfig ath0     → fréquence, débit, puissance TX, signal
@@ -20,11 +21,11 @@ import json
 import logging
 import os
 import re
-import subprocess
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import paramiko
+import pexpect
 from django.conf import settings
 
 if TYPE_CHECKING:
@@ -73,39 +74,77 @@ def _build_ssh_client() -> paramiko.SSHClient:
     return client
 
 
-def _exec_sshpass(
-    host: str, port: int, username: str, password: str, command: str, timeout: int
+def _run_aireos_command_pexpect(
+    host: str, port: int, username: str, password: str, command: str, timeout: int = 20
 ) -> tuple[str, str]:
     """
-    Exécute une commande airOS via sshpass (fallback pour vieux firmwares v8.x).
+    Exécute une commande airOS via pexpect — gère le double prompt password des
+    vieux firmwares airOS v8.x qui rejettent silencieusement la première tentative.
 
-    Utilise une liste d'arguments (pas shell=True) pour éviter l'injection de commandes.
+    Séquence attendue :
+      1. SSH → premier "password:" → envoi du mot de passe (souvent refusé)
+      2. Deuxième "password:" → renvoi du mot de passe (accepté)
+      3. Prompt "XC#" → shell interactif ouvert
+      4. Envoi de la commande, lecture de la sortie jusqu'au prochain "XC#"
     """
-    try:
-        result = subprocess.run(
-            [
-                "sshpass", "-p", password,
-                "ssh",
-                "-p", str(port),
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-o", "PubkeyAuthentication=no",
-                f"{username}@{host}",
-                command,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=timeout + 5,
-        )
-        return result.stdout.strip(), result.stderr.strip()
-    except FileNotFoundError:
+    ssh_cmd = (
+        f"ssh -p {port} "
+        f"-o StrictHostKeyChecking=no "
+        f"-o UserKnownHostsFile=/dev/null "
+        f"-o PubkeyAuthentication=no "
+        f"{username}@{host}"
+    )
+    child = pexpect.spawn(ssh_cmd, timeout=timeout, encoding="utf-8")
+
+    # Premier prompt mot de passe (souvent refusé par airOS v8.x)
+    i = child.expect(["password:", "XC#", pexpect.EOF, pexpect.TIMEOUT])
+    if i == 0:
+        child.sendline(password)
+    elif i == 1:
+        pass  # authentification sans mot de passe (rare)
+    else:
+        child.close(force=True)
         raise UbiquitiSSHError(
-            "sshpass introuvable — vérifiez que sshpass est installé (apt-get install -y sshpass)."
+            f"pexpect airOS ({host}:{port}) : aucun prompt reçu au démarrage (EOF/timeout)."
         )
-    except subprocess.TimeoutExpired:
-        raise UbiquitiSSHError(f"Timeout sshpass ({timeout}s) sur {host}:{port}.")
-    except Exception as exc:
-        raise UbiquitiSSHError(f"sshpass ({host}:{port}) : {exc}") from exc
+
+    # Deuxième prompt mot de passe (le vrai)
+    i = child.expect(["password:", "XC#", "denied", pexpect.EOF, pexpect.TIMEOUT])
+    if i == 0:
+        child.sendline(password)
+    elif i == 1:
+        pass  # déjà au shell après le premier mot de passe
+    elif i == 2:
+        child.close(force=True)
+        raise UbiquitiSSHError(
+            f"pexpect airOS ({host}:{port}) : authentification refusée (denied)."
+        )
+    else:
+        child.close(force=True)
+        raise UbiquitiSSHError(
+            f"pexpect airOS ({host}:{port}) : EOF/timeout après deuxième prompt password."
+        )
+
+    # Si le deuxième mot de passe a été envoyé, attendre le prompt XC#
+    if i == 0:
+        j = child.expect(["XC#", "denied", pexpect.EOF, pexpect.TIMEOUT], timeout=10)
+        if j != 0:
+            child.close(force=True)
+            raise UbiquitiSSHError(
+                f"pexpect airOS ({host}:{port}) : prompt XC# non obtenu après authentification."
+            )
+
+    # Envoyer la commande et récupérer la sortie
+    child.sendline(command)
+    child.expect(["XC#", pexpect.EOF, pexpect.TIMEOUT], timeout=10)
+    output = child.before or ""
+    child.close()
+
+    # Supprimer l'écho de la commande en première ligne
+    lines = output.strip().splitlines()
+    if lines and command in lines[0]:
+        lines = lines[1:]
+    return "\n".join(lines), ""
 
 
 def _run_aireos_command(
@@ -114,10 +153,9 @@ def _run_aireos_command(
     """
     Exécute une commande airOS avec fallback automatique :
 
-    1. Essai paramiko (firmwares récents)
-       - disabled_algorithms force le handshake vers ssh-rsa (SHA-1) accepté par airOS
-    2. Si AuthenticationException ou SSHException → sshpass subprocess (vieux airOS v8.x)
-    3. Si les deux échouent → raise UbiquitiSSHError
+    1. paramiko  — firmwares récents (algorithmes SSH modernes)
+    2. pexpect   — vieux firmwares airOS v8.x (double prompt password + shell XC#)
+    3. raise UbiquitiSSHError si les deux échouent
     """
     # Méthode 1 : paramiko
     try:
@@ -141,11 +179,11 @@ def _run_aireos_command(
             client.close()
     except (paramiko.AuthenticationException, paramiko.SSHException) as exc:
         logger.info(
-            "paramiko airOS (%s:%s) échec (%s) — tentative sshpass", host, port, exc
+            "paramiko airOS (%s:%s) échec (%s) — tentative pexpect", host, port, exc
         )
 
-    # Méthode 2 : sshpass
-    return _exec_sshpass(host, port, username, password, command, timeout)
+    # Méthode 2 : pexpect (double prompt airOS v8.x)
+    return _run_aireos_command_pexpect(host, port, username, password, command, timeout)
 
 
 def _parse_iwconfig(output: str) -> dict:
