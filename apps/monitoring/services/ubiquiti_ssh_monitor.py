@@ -85,7 +85,7 @@ def _connect_airos(device: "NetworkDevice") -> paramiko.SSHClient:
     if not password:
         raise UbiquitiSSHError("AIREOS_SSH_PASSWORD non configuré dans l'environnement.")
 
-    timeout = int(getattr(settings, "MIKROTIK_SSH_TIMEOUT", SSH_TIMEOUT))
+    timeout = int(getattr(settings, "AIREOS_SSH_TIMEOUT", 15))
     client = _build_ssh_client()
     try:
         client.connect(
@@ -96,6 +96,7 @@ def _connect_airos(device: "NetworkDevice") -> paramiko.SSHClient:
             look_for_keys=False,
             allow_agent=False,
             timeout=timeout,
+            disabled_algorithms={"pubkeys": ["rsa-sha2-256", "rsa-sha2-512"]},
         )
     except Exception as exc:
         client.close()
