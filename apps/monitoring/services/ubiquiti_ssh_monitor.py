@@ -107,8 +107,8 @@ def _run_aireos_command_pexpect(
         if i == 0:
             # Premier refus normal (Permission denied) — renvoyer le même mot de passe
             child.sendline(password)
-            # Attendre le résultat final
-            j = child.expect(["XC#", "denied", pexpect.TIMEOUT, pexpect.EOF], timeout=10)
+            # Attendre le prompt XC# — ignorer le message NOTICE (peut contenir "denied")
+            j = child.expect(["XC#", pexpect.TIMEOUT, pexpect.EOF], timeout=30)
             if j != 0:
                 child.close(force=True)
                 raise UbiquitiSSHError(
