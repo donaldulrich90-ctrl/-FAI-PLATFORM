@@ -1,0 +1,4 @@
+sudo mkdir -p /data/coolify/ssh-keys
+sudo cp ~/.ssh/id_rsa /data/coolify/ssh-keys/server_key
+sudo chmod 600 /data/coolify/ssh-keys/server_key
+sudo chown 9999:9999 /data/coolify/ssh-keys/server_key

@@ -7,7 +7,7 @@
 <div class="page-header anim-up" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
   <div>
     <h1 class="page-title">Antennes Ubiquiti</h1>
-    <p class="page-sub">Métriques SNMP en temps réel — actualisation automatique toutes les 2 min.</p>
+    <p class="page-sub">Métriques via SSH MikroTik parent — actualisation automatique toutes les 2 min.</p>
   </div>
   <div style="display:flex;gap:10px;align-items:center;">
     <span id="refresh-badge" class="badge badge-slate">Chargement…</span>
@@ -28,6 +28,13 @@
       <div>
         <div style="font-weight:700;font-size:15px;color:var(--text);">{{ dev.name }}</div>
         <div style="font-size:12px;color:var(--muted);margin-top:2px;">{{ dev.site.name }} · <span class="mono">{{ dev.management_host }}</span></div>
+        {% if dev.parent_mikrotik %}
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">
+          via <span class="mono">{{ dev.parent_mikrotik.name }}</span>{% if dev.mikrotik_interface %} · <span class="mono">{{ dev.mikrotik_interface }}</span>{% endif %}
+        </div>
+        {% else %}
+        <div style="font-size:11px;color:var(--amber);margin-top:2px;">⚠ Pas de MikroTik parent</div>
+        {% endif %}
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
         <span id="status-{{ dev.pk }}" class="badge badge-slate">
@@ -132,13 +139,13 @@ const SNMP_BASE = "/antennes/";
 let _refreshTimer = null;
 
 const METRIC_DEFS = [
-  {key: 'freq_mhz',          label: 'Fréquence',     fmt: v => v != null ? v + ' MHz' : 'N/D'},
-  {key: 'tx_power_dbm',      label: 'Puissance TX',  fmt: v => v != null ? v + ' dBm' : 'N/D'},
-  {key: 'client_count',      label: 'Clients',       fmt: v => v != null ? v : 'N/D'},
-  {key: 'avg_signal_dbm',    label: 'Signal moyen',  fmt: v => v != null ? v + ' dBm' : 'N/D'},
-  {key: 'throughput_in_mbps',label: 'Upload',        fmt: v => v != null ? v + ' MB' : 'N/D'},
-  {key: 'throughput_out_mbps',label:'Download',      fmt: v => v != null ? v + ' MB' : 'N/D'},
-  {key: 'uptime',            label: 'Uptime',        fmt: v => v || 'N/D'},
+  {key: 'client_count',      label: 'Clients bridge', fmt: v => v != null ? v : 'N/D'},
+  {key: 'neighbor_seen',     label: 'Voisin MNDP',    fmt: v => v === true ? 'Visible' : v === false ? 'Absent' : 'N/D'},
+  {key: 'avg_signal_dbm',    label: 'Signal',         fmt: v => v != null ? v + ' dBm' : 'N/D'},
+  {key: 'freq_mhz',          label: 'Fréquence',      fmt: v => v != null ? v + ' MHz' : 'N/D'},
+  {key: 'tx_power_dbm',      label: 'Puissance TX',   fmt: v => v != null ? v + ' dBm' : 'N/D'},
+  {key: 'throughput_in_mbps',label: 'Upload',         fmt: v => v != null ? v + ' MB' : 'N/D'},
+  {key: 'throughput_out_mbps',label:'Download',       fmt: v => v != null ? v + ' MB' : 'N/D'},
 ];
 
 function signalColor(dbm) {

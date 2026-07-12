@@ -178,12 +178,12 @@ def antenna_list(request: HttpRequest):
 
     user = request.user
     if user_sees_all_tenants(user):
-        devices = NetworkDevice.objects.filter(vendor="ubiquiti", is_active=True).select_related("site")
+        devices = NetworkDevice.objects.filter(vendor="ubiquiti", is_active=True).select_related("site", "parent_mikrotik")
     else:
         tid = getattr(user, "tenant_id", None)
         devices = (
             NetworkDevice.objects.filter(vendor="ubiquiti", is_active=True, site__tenant_id=tid)
-            .select_related("site")
+            .select_related("site", "parent_mikrotik")
             if tid
             else NetworkDevice.objects.none()
         )
@@ -202,7 +202,7 @@ def antenna_list(request: HttpRequest):
 @login_required
 @require_GET
 def antenna_snmp_api(request: HttpRequest, pk: int) -> JsonResponse:
-    """API JSON : métriques SNMP temps réel d'une antenne Ubiquiti."""
+    """API JSON : métriques temps réel d'une antenne Ubiquiti via SSH MikroTik parent."""
     if not _admin_required(request):
         return JsonResponse({"error": "Accès refusé."}, status=403)
 
@@ -214,36 +214,41 @@ def antenna_snmp_api(request: HttpRequest, pk: int) -> JsonResponse:
         if not tid or device.site.tenant_id != tid:
             return JsonResponse({"error": "Accès refusé."}, status=403)
 
-    from .services.snmp_ubiquiti import UbiquitiAirMAXSnmpService
+    parent = device.parent_mikrotik
+    if parent is None or not parent.is_active:
+        return JsonResponse({
+            "online": False,
+            "freq_mhz": None,
+            "tx_power_dbm": None,
+            "client_count": None,
+            "avg_signal_dbm": None,
+            "throughput_in_mbps": None,
+            "throughput_out_mbps": None,
+            "uptime": "—",
+            "error": "Pas de MikroTik parent configuré pour cette antenne.",
+            "device_name": device.name,
+        })
 
-    svc = UbiquitiAirMAXSnmpService(host=device.management_host)
-    m = svc.fetch_full_metrics(check_ping=True)
+    from .services.mikrotik_ssh_monitor import MikrotikSshMonitorService
 
-    def _fmt_uptime(s: int | None) -> str:
-        if s is None:
-            return "—"
-        days, rem = divmod(s, 86400)
-        hours, rem = divmod(rem, 3600)
-        mins = rem // 60
-        parts = []
-        if days:
-            parts.append(f"{days}j")
-        if hours:
-            parts.append(f"{hours}h")
-        parts.append(f"{mins}min")
-        return " ".join(parts)
+    svc = MikrotikSshMonitorService(mikrotik_device=parent)
+    m = svc.fetch_metrics(
+        ubiquiti_ip=device.management_host,
+        mikrotik_interface=device.mikrotik_interface,
+    )
 
     return JsonResponse({
         "online": m.online,
-        "freq_mhz": m.freq_mhz,
-        "tx_power_dbm": m.tx_power_dbm,
+        "freq_mhz": None,
+        "tx_power_dbm": None,
         "client_count": m.client_count,
         "avg_signal_dbm": m.avg_signal_dbm,
-        "throughput_in_mbps": m.throughput_in_mbps,
-        "throughput_out_mbps": m.throughput_out_mbps,
-        "uptime": _fmt_uptime(m.uptime_seconds),
+        "throughput_in_mbps": None,
+        "throughput_out_mbps": None,
+        "uptime": "—",
         "error": m.error,
         "device_name": device.name,
+        "neighbor_seen": m.neighbor_seen,
     })
 
 

@@ -139,6 +139,23 @@ class NetworkDevice(models.Model):
         help_text="Nom de l’interface bridge pour /interface bridge filter (ex. bridge). "
         "Vide = paramètre MIKROTIK_DEFAULT_BRIDGE_NAME.",
     )
+    parent_mikrotik = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ubiquiti_children",
+        limit_choices_to={"vendor": "mikrotik"},
+        verbose_name="MikroTik parent",
+        help_text="MikroTik central via lequel cette antenne Ubiquiti est monitorée par SSH.",
+    )
+    mikrotik_interface = models.CharField(
+        "Interface MikroTik (monitoring)",
+        max_length=32,
+        blank=True,
+        help_text="Port bridge du MikroTik connecté à cette antenne (ex. ether5). "
+        "Utilisé pour compter les clients bridge.",
+    )
     is_active = models.BooleanField(default=True)
 
     class Meta:
