@@ -388,9 +388,12 @@ class RouterOSClient:
 
     # ── opérations ip-binding hotspot (revendeurs) ───────────────────────────
 
-    def ip_binding_upsert(self, mac: str, binding_type: str, comment: str) -> tuple[bool, str]:
+    def ip_binding_upsert(
+        self, mac: str, binding_type: str, comment: str, address: str = ""
+    ) -> tuple[bool, str]:
         """
-        Crée ou remplace une entrée /ip hotspot ip-binding (idempotent).
+        Crée ou met à jour une entrée /ip hotspot ip-binding (idempotent).
+        Recherche d'abord par MAC (ou IP si MAC vide), puis SET si trouvé, ADD sinon.
         binding_type : "bypassed" | "regular" | "blocked"
         """
         if self._mode == "dry_run":
@@ -400,30 +403,73 @@ class RouterOSClient:
             )
             return True, ""
 
-        self._ip_binding_remove_by_comment(comment)
-
-        safe_mac = re.sub(r"[^0-9a-fA-F:]", "", mac)
+        safe_mac = re.sub(r"[^0-9a-fA-F:]", "", mac).upper()
+        safe_addr = re.sub(r"[^0-9./]", "", address)
         safe_type = re.sub(r"[^a-z]", "", binding_type)
+        safe_comment = comment.replace('"', "")
 
         if self._mode == "api":
             try:
-                self._api(
-                    "/ip/hotspot/ip-binding/add",
-                    **{"mac-address": safe_mac},
-                    type=safe_type,
-                    comment=comment,
-                )
+                existing = None
+                if safe_mac:
+                    rows = self._api("/ip/hotspot/ip-binding/print", **{"?mac-address": safe_mac})
+                    if rows:
+                        existing = rows[0]
+                elif safe_addr:
+                    rows = self._api("/ip/hotspot/ip-binding/print", **{"?address": safe_addr})
+                    if rows:
+                        existing = rows[0]
+
+                if existing:
+                    self._api(
+                        "/ip/hotspot/ip-binding/set",
+                        **{".id": existing[".id"]},
+                        type=safe_type,
+                        comment=comment,
+                    )
+                else:
+                    kwargs: dict = {"type": safe_type, "comment": comment}
+                    if safe_mac:
+                        kwargs["mac-address"] = safe_mac
+                    if safe_addr:
+                        kwargs["address"] = safe_addr
+                    self._api("/ip/hotspot/ip-binding/add", **kwargs)
                 return True, ""
             except Exception as exc:
                 msg = str(exc)[:500]
                 logger.error("ip_binding_upsert API mac=%s type=%s : %s", mac, binding_type, msg)
                 return False, msg
 
-        safe_comment = comment.replace('"', "")
-        cmd = (
-            f'/ip hotspot ip-binding add mac-address="{safe_mac}" '
-            f'type={safe_type} comment="{safe_comment}"'
-        )
+        # SSH fallback
+        if safe_mac:
+            rc_find, out_find, _ = self._ssh_exec(
+                f'/ip hotspot ip-binding print terse where mac-address="{safe_mac}"'
+            )
+            has_existing = rc_find == 0 and bool(out_find.strip())
+            filter_expr = f'mac-address="{safe_mac}"'
+        elif safe_addr:
+            rc_find, out_find, _ = self._ssh_exec(
+                f'/ip hotspot ip-binding print terse where address="{safe_addr}"'
+            )
+            has_existing = rc_find == 0 and bool(out_find.strip())
+            filter_expr = f'address="{safe_addr}"'
+        else:
+            has_existing = False
+            filter_expr = ""
+
+        if has_existing:
+            cmd = (
+                f'/ip hotspot ip-binding set [find {filter_expr}] '
+                f'type={safe_type} comment="{safe_comment}"'
+            )
+        else:
+            mac_arg = f' mac-address="{safe_mac}"' if safe_mac else ""
+            addr_arg = f' address="{safe_addr}"' if safe_addr else ""
+            cmd = (
+                f'/ip hotspot ip-binding add{mac_arg}{addr_arg} '
+                f'type={safe_type} comment="{safe_comment}"'
+            )
+
         rc, out, err = self._ssh_exec(cmd)
         if rc != 0:
             msg = (err or out or "erreur SSH").strip()[:500]

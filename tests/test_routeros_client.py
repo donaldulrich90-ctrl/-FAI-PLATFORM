@@ -244,3 +244,99 @@ def test_hotspot_all_users_via_api(api_client):
     users = client.hotspot_all_users()
     assert len(users) == 1
     assert users[0]["name"] == "ABC"
+
+
+# ── tests ip_binding_upsert ───────────────────────────────────────────────────
+
+def test_ip_binding_upsert_dry_run(dry_run_client):
+    ok, err = dry_run_client.ip_binding_upsert("AA:BB:CC:DD:EE:FF", "bypassed", "revendeur-1")
+    assert ok is True
+    assert err == ""
+
+
+def test_ip_binding_upsert_creates_when_absent(api_client):
+    """Activation (bypassed) : aucun binding existant → ADD appelé."""
+    client, mock_conn = api_client
+    # print retourne vide → pas d'existant
+    mock_conn.return_value = iter([])
+
+    ok, err = client.ip_binding_upsert("aa:bb:cc:dd:ee:ff", "bypassed", "revendeur-7")
+
+    assert ok is True
+    assert err == ""
+    # Cherche les appels pour trouver le /add
+    calls = [str(c) for c in mock_conn.call_args_list]
+    assert any("/ip/hotspot/ip-binding/add" in c for c in calls), (
+        f"Expected /add call, got: {calls}"
+    )
+    assert not any("/ip/hotspot/ip-binding/set" in c for c in calls), (
+        "SET ne doit pas être appelé quand le binding est absent"
+    )
+
+
+def test_ip_binding_upsert_updates_when_exists(api_client):
+    """Suspension (blocked) : binding existant → SET appelé, ADD non appelé."""
+    client, mock_conn = api_client
+
+    existing_row = {".id": "*3", "mac-address": "AA:BB:CC:DD:EE:FF", "type": "bypassed"}
+
+    call_count = [0]
+
+    def side_effect(path, **kwargs):
+        call_count[0] += 1
+        if "print" in path:
+            return iter([existing_row])
+        return iter([])
+
+    mock_conn.side_effect = side_effect
+
+    ok, err = client.ip_binding_upsert("AA:BB:CC:DD:EE:FF", "blocked", "revendeur-7")
+
+    assert ok is True
+    assert err == ""
+    calls = [str(c) for c in mock_conn.call_args_list]
+    assert any("/ip/hotspot/ip-binding/set" in c for c in calls), (
+        f"Expected /set call, got: {calls}"
+    )
+    assert not any("/ip/hotspot/ip-binding/add" in c for c in calls), (
+        "ADD ne doit pas être appelé quand le binding existe déjà"
+    )
+
+
+def test_ip_binding_upsert_transition_bypassed_to_blocked(api_client):
+    """Idempotence : passage bypassed→blocked ne lève pas d'erreur 'already exists'."""
+    client, mock_conn = api_client
+
+    existing_row = {".id": "*5", "mac-address": "11:22:33:44:55:66", "type": "bypassed"}
+
+    def side_effect(path, **kwargs):
+        if "print" in path:
+            return iter([existing_row])
+        return iter([])
+
+    mock_conn.side_effect = side_effect
+
+    ok, err = client.ip_binding_upsert("11:22:33:44:55:66", "blocked", "revendeur-12")
+    assert ok is True
+    assert err == ""
+
+
+def test_ip_binding_upsert_mac_normalized_uppercase(api_client):
+    """Le MAC est normalisé en majuscules avant la recherche et l'écriture."""
+    client, mock_conn = api_client
+
+    captured_kwargs: list[dict] = []
+
+    def side_effect(path, **kwargs):
+        captured_kwargs.append({"path": path, **kwargs})
+        return iter([])
+
+    mock_conn.side_effect = side_effect
+
+    client.ip_binding_upsert("aa:bb:cc:dd:ee:ff", "bypassed", "revendeur-3")
+
+    print_call = next(k for k in captured_kwargs if "print" in k["path"])
+    assert print_call.get("?mac-address") == "AA:BB:CC:DD:EE:FF"
+
+    add_call = next(k for k in captured_kwargs if "add" in k["path"])
+    assert add_call.get("mac-address") == "AA:BB:CC:DD:EE:FF"
