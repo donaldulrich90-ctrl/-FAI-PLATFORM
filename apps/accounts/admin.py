@@ -189,6 +189,7 @@ class UserAdmin(TenantScopedAdminMixin, DjangoUserAdmin):
         "email",
         "tenant",
         "role",
+        "type_revendeur",
         "ticket_prefix",
         "default_commission_percent",
         "statut_revendeur",
@@ -196,7 +197,7 @@ class UserAdmin(TenantScopedAdminMixin, DjangoUserAdmin):
         "is_staff",
         "is_active",
     )
-    list_filter = ("role", "statut_revendeur", "is_staff", "is_active", "is_platform_operator", "tenant")
+    list_filter = ("role", "type_revendeur", "statut_revendeur", "is_staff", "is_active", "is_platform_operator", "tenant")
     list_select_related = ("tenant", "mikrotik")
 
     fieldsets = DjangoUserAdmin.fieldsets + (
@@ -207,6 +208,7 @@ class UserAdmin(TenantScopedAdminMixin, DjangoUserAdmin):
                     "tenant",
                     "is_platform_operator",
                     "role",
+                    "type_revendeur",
                     "phone",
                     "default_commission_percent",
                     "ticket_prefix",

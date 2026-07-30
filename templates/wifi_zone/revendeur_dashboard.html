@@ -10,11 +10,24 @@
       <h1 class="page-title">Espace Revendeur</h1>
       <p class="page-sub">Vos ventes de tickets Wi-Fi Zone et vos commissions en temps réel.</p>
     </div>
-    {% if revendeur.ticket_prefix %}
-    <span class="badge badge-cyan mono" style="font-size:13px;padding:6px 16px;">
-      Préfixe : {{ revendeur.ticket_prefix }}
-    </span>
-    {% endif %}
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      {% if revendeur.type_revendeur == "partenaire" %}
+      <span class="badge badge-slate" style="font-size:12px;padding:5px 14px;">
+        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin-right:4px;"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        PARTENAIRE
+      </span>
+      {% else %}
+      <span class="badge badge-green" style="font-size:12px;padding:5px 14px;">
+        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin-right:4px;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        AUTONOME
+      </span>
+      {% endif %}
+      {% if revendeur.ticket_prefix %}
+      <span class="badge badge-cyan mono" style="font-size:13px;padding:6px 16px;">
+        Préfixe : {{ revendeur.ticket_prefix }}
+      </span>
+      {% endif %}
+    </div>
   </div>
 </div>
 
@@ -72,10 +85,17 @@
 
 <!-- Actions rapides -->
 <div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;" class="anim-up-2">
+  {% if revendeur.type_revendeur != "partenaire" %}
   <a href="{% url 'wifi_zone:revendeur_generate_batch' %}" class="btn btn-primary btn-md">
     <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
     Générer des tickets
   </a>
+  {% else %}
+  <div class="alert alert-info" style="margin-bottom:0;padding:10px 16px;">
+    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    Compte <strong>Partenaire</strong> — la génération de tickets est effectuée par l'administrateur FAI.
+  </div>
+  {% endif %}
 </div>
 
 <!-- Lots récents -->

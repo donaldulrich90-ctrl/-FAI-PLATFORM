@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block leaflet_assets %}{% endblock %}
 {% block title %}Générer des tickets{% endblock %}
-{% block breadcrumb %}Wi-Fi / Mes Tickets{% endblock %}
+{% block breadcrumb %}Wi-Fi / Générer Tickets{% endblock %}
 
 {% block content %}
 <div class="page-header anim-up">
@@ -9,11 +9,33 @@
   <p class="page-sub">Les tickets seront créés sur le MikroTik du site et imprimables immédiatement.</p>
 </div>
 
-<div class="anim-up-1" style="max-width:520px;">
-  <form method="post">
+<div class="anim-up-1" style="max-width:540px;">
+  <form method="post" id="genForm">
     {% csrf_token %}
     <div class="card" style="padding:28px;margin-bottom:20px;">
       <div class="section-head" style="margin-bottom:20px;"><h2>Paramètres du lot</h2></div>
+
+      {% if is_admin %}
+      <!-- Sélecteur revendeur AUTONOME (admin uniquement) -->
+      <div class="field" style="margin-bottom:18px;">
+        <label>Revendeur <span style="color:var(--green);font-size:11px;">AUTONOME uniquement</span></label>
+        <select name="revendeur_pk" id="revSelect" required onchange="updatePrefix()">
+          <option value="">— Sélectionner un revendeur —</option>
+          {% for rev in autonomes %}
+          <option value="{{ rev.pk }}"
+                  data-prefix="{{ rev.ticket_prefix }}"
+                  data-site="{{ rev.site_id|default:'' }}">
+            {{ rev.get_full_name|default:rev.username }}
+            {% if rev.ticket_prefix %} · {{ rev.ticket_prefix }}{% endif %}
+            {% if rev.site %} · {{ rev.site.name }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        {% if not autonomes %}
+        <div class="help" style="color:var(--amber);">Aucun revendeur AUTONOME configuré avec un préfixe.</div>
+        {% endif %}
+      </div>
+      {% endif %}
 
       <div class="field">
         <label>Site</label>
@@ -36,12 +58,12 @@
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
         <div class="field">
-          <label>Quantité</label>
-          <select name="quantity" required>
-            {% for q in quantity_choices %}
-            <option value="{{ q }}"{% if q == 10 %} selected{% endif %}>{{ q }} tickets</option>
-            {% endfor %}
-          </select>
+          <label>Quantité <span style="font-size:11px;color:var(--muted);">max {{ max_quantity }}</span></label>
+          <input type="number" name="quantity" id="qtyInput"
+                 min="1" max="{{ max_quantity }}" value="10" required
+                 style="width:100%!important;"
+                 oninput="clampQty(this)">
+          <div class="help" id="qtyHelp" style="display:none;color:var(--red);font-size:11px;">Maximum {{ max_quantity }} tickets par lot.</div>
         </div>
         <div class="field">
           <label>Prix unitaire (XOF)</label>
@@ -56,16 +78,59 @@
       </div>
     </div>
 
-    <div class="alert alert-info" style="margin-bottom:18px;">
+    <div class="alert alert-info" style="margin-bottom:18px;" id="prefixPreview">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-      Les codes seront générés au format <strong>{{ request.user.ticket_prefix }}0001</strong>, <strong>{{ request.user.ticket_prefix }}0002</strong>…
-      avec un mot de passe aléatoire pour chaque ticket.
+      <span id="prefixText">
+        {% if is_admin %}
+        Sélectionnez un revendeur pour voir le format des codes.
+        {% else %}
+        Les codes seront générés au format <strong>{{ request.user.ticket_prefix }}0001</strong>, <strong>{{ request.user.ticket_prefix }}0002</strong>…
+        {% endif %}
+      </span>
     </div>
 
-    <button type="submit" class="btn btn-primary btn-md" style="width:100%;">
+    <button type="submit" class="btn btn-primary btn-md" style="width:100%;" id="submitBtn">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
       Générer et pousser vers MikroTik
     </button>
   </form>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const MAX_QTY = {{ max_quantity }};
+
+function clampQty(input) {
+  const val = parseInt(input.value, 10);
+  const help = document.getElementById('qtyHelp');
+  if (val > MAX_QTY) {
+    input.value = MAX_QTY;
+    help.style.display = 'block';
+  } else {
+    help.style.display = 'none';
+  }
+}
+
+function updatePrefix() {
+  const sel = document.getElementById('revSelect');
+  if (!sel) return;
+  const opt = sel.options[sel.selectedIndex];
+  const prefix = opt.getAttribute('data-prefix') || '';
+  const txt = document.getElementById('prefixText');
+  if (prefix) {
+    txt.innerHTML = `Les codes seront générés au format <strong>${prefix}0001</strong>, <strong>${prefix}0002</strong>…`;
+  } else {
+    txt.textContent = 'Sélectionnez un revendeur pour voir le format des codes.';
+  }
+}
+
+document.getElementById('genForm').addEventListener('submit', function(e) {
+  const qty = parseInt(document.getElementById('qtyInput').value, 10);
+  if (qty > MAX_QTY || qty < 1) {
+    e.preventDefault();
+    document.getElementById('qtyHelp').style.display = 'block';
+  }
+});
+</script>
 {% endblock %}

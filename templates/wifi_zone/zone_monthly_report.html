@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Rapport Mensuel — {{ revendeur.get_full_name|default:revendeur.username }}{% endblock %}
+{% block breadcrumb %}WiFi Zones › <a href="{% url 'wifi_zone:zones_dashboard' %}" style="color:var(--dim);text-decoration:none;">Zones</a> › <span>Rapport Mensuel</span>{% endblock %}
+
+{% block chartjs_assets %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+  <div>
+    <h1 class="page-title">Rapport Mensuel</h1>
+    <p class="page-sub">{{ revendeur.get_full_name|default:revendeur.username }}{% if revendeur.ticket_prefix %} · <span class="mono">{{ revendeur.ticket_prefix }}-*</span>{% endif %} · {{ month_name }}</p>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+    <form method="get" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <select name="month" style="background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 12px;font-family:inherit;font-size:13px;width:auto !important;">
+        {% for m_num, m_name in months %}
+        <option value="{{ m_num }}" {% if m_num == month %}selected{% endif %}>{{ m_name }}</option>
+        {% endfor %}
+      </select>
+      <select name="year" style="background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 12px;font-family:inherit;font-size:13px;width:auto !important;">
+        {% for y in years %}
+        <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-primary btn-sm">Actualiser</button>
+    </form>
+    <a href="{% url 'wifi_zone:zone_daily_report' revendeur.pk %}" class="btn btn-ghost btn-sm">
+      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path stroke-linecap="round" d="M16 2v4M8 2v4M3 10h18"/></svg>
+      Vue journalière
+    </a>
+    <button onclick="window.print()" class="btn btn-ghost btn-sm">
+      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+      Imprimer
+    </button>
+  </div>
+</div>
+
+<!-- KPIs du mois vs mois précédent -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px;">
+  <div class="stat-card" style="--accent-color:rgba(6,182,212,.1);">
+    <div class="stat-label">Tickets ce mois</div>
+    <div class="stat-value" style="color:var(--cyan);">{{ count }}</div>
+    <div class="stat-change {% if count >= prev_count %}up{% elif count < prev_count %}down{% endif %}">
+      {% if prev_count %}
+        {% if count >= prev_count %}▲{% else %}▼{% endif %}
+        vs {{ prev_count }} mois précédent
+      {% else %}Aucun mois précédent{% endif %}
+    </div>
+  </div>
+  <div class="stat-card" style="--accent-color:rgba(201,151,44,.1);">
+    <div class="stat-label">Revenus bruts</div>
+    <div class="stat-value" style="color:var(--primary);font-size:22px;">{{ brut_xof|floatformat:0 }}</div>
+    <div class="stat-change {% if brut_xof >= prev_brut_xof %}up{% else %}down{% endif %}">
+      XOF · vs {{ prev_brut_xof|floatformat:0 }} XOF
+    </div>
+  </div>
+  <div class="stat-card" style="--accent-color:rgba(245,158,11,.1);">
+    <div class="stat-label">Commission</div>
+    <div class="stat-value" style="color:var(--amber);font-size:22px;">{{ commission_xof|floatformat:0 }}</div>
+    <div class="stat-change">XOF revendeur</div>
+  </div>
+  <div class="stat-card" style="--accent-color:rgba(4,61,43,.2);">
+    <div class="stat-label">Net FAI (FAEST)</div>
+    <div class="stat-value" style="color:#4ade80;font-size:22px;">{{ net_xof|floatformat:0 }}</div>
+    <div class="stat-change">XOF à reverser</div>
+  </div>
+</div>
+
+<!-- Graphique revenus par jour -->
+<div class="card" style="padding:20px;margin-bottom:20px;">
+  <div class="section-head">
+    <h2>Revenus par jour — {{ month_name }}</h2>
+  </div>
+  <div style="position:relative;height:220px;">
+    <canvas id="dailyRevenueChart"></canvas>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
+  <!-- Graphique tickets par jour -->
+  <div class="card" style="padding:20px;">
+    <div class="section-head"><h2>Tickets par jour</h2></div>
+    <div style="position:relative;height:200px;">
+      <canvas id="dailyCountChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Top tickets vendus par durée -->
+  <div class="card" style="padding:20px;">
+    <div class="section-head"><h2>Top durées vendues</h2></div>
+    {% if top_durations %}
+    <div style="display:flex;flex-direction:column;gap:12px;margin-top:8px;">
+      {% for d in top_durations %}
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+          <span class="badge badge-cyan">{{ d.label }}</span>
+          <div style="flex:1;min-width:60px;height:6px;background:rgba(255,255,255,.05);border-radius:3px;overflow:hidden;">
+            {% if top_durations.0.count > 0 %}
+            <div style="width:{% widthratio d.count top_durations.0.count 100 %}%;height:100%;background:rgba(201,151,44,.6);border-radius:3px;"></div>
+            {% endif %}
+          </div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-weight:700;color:var(--text);">{{ d.count }}</div>
+          <div style="font-size:11px;color:var(--muted);">{{ d.total|floatformat:0 }} XOF</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding:32px 0;">
+      <p>Aucune vente ce mois.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const chartDefaults = {
+  plugins: { legend: { display: false } },
+  scales: {
+    x: { ticks: { color: '#475569', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,.03)' } },
+    y: { ticks: { color: '#475569', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,.05)' }, beginAtZero: true }
+  }
+};
+
+const daysLabels = {{ days_labels }};
+const daysRevenue = {{ days_revenue }};
+const daysCount = {{ days_count }};
+
+new Chart(document.getElementById('dailyRevenueChart'), {
+  type: 'bar',
+  data: {
+    labels: daysLabels,
+    datasets: [{
+      data: daysRevenue,
+      backgroundColor: 'rgba(201,151,44,.45)',
+      borderColor: 'rgba(201,151,44,1)',
+      borderWidth: 1,
+      borderRadius: 4,
+    }]
+  },
+  options: { ...chartDefaults, maintainAspectRatio: false }
+});
+
+new Chart(document.getElementById('dailyCountChart'), {
+  type: 'line',
+  data: {
+    labels: daysLabels,
+    datasets: [{
+      data: daysCount,
+      borderColor: 'rgba(6,182,212,1)',
+      backgroundColor: 'rgba(6,182,212,.1)',
+      borderWidth: 2,
+      fill: true,
+      tension: 0.35,
+      pointBackgroundColor: 'rgba(6,182,212,1)',
+      pointRadius: 3,
+    }]
+  },
+  options: { ...chartDefaults, maintainAspectRatio: false }
+});
+</script>
+{% endblock %}

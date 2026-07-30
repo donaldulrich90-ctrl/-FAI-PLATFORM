@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}WiFi Zones — Faso ISP{% endblock %}
+{% block breadcrumb %}Ventes Wi-Fi › <span>WiFi Zones</span>{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+  <div>
+    <h1 class="page-title">WiFi Zones</h1>
+    <p class="page-sub">Vue globale des revendeurs · {{ today|date:"d/m/Y" }}</p>
+  </div>
+  <a href="{% url 'wifi_zone:admin_revendeur_list' %}" class="btn btn-ghost btn-sm">
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+    Vue simple
+  </a>
+</div>
+
+<!-- KPIs globaux -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:28px;">
+  <div class="stat-card" style="--accent-color:rgba(16,185,129,.1);">
+    <div class="stat-icon" style="background:rgba(16,185,129,.12);">
+      <svg width="20" height="20" fill="none" stroke="#10B981" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3"/></svg>
+    </div>
+    <div class="stat-label">Zones en ligne</div>
+    <div class="stat-value" style="color:var(--green);">{{ nb_en_ligne }}</div>
+    <div class="stat-change">sur {{ revendeurs|length }} revendeur{{ revendeurs|length|pluralize }}</div>
+  </div>
+  <div class="stat-card" style="--accent-color:rgba(6,182,212,.1);">
+    <div class="stat-icon" style="background:rgba(6,182,212,.12);">
+      <svg width="20" height="20" fill="none" stroke="#06B6D4" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+    </div>
+    <div class="stat-label">Clients connectés</div>
+    <div class="stat-value" style="color:var(--cyan);">{{ total_clients }}</div>
+    <div class="stat-change">sessions actives (tous revendeurs)</div>
+  </div>
+  <div class="stat-card" style="--accent-color:rgba(201,151,44,.1);">
+    <div class="stat-icon" style="background:rgba(201,151,44,.12);">
+      <svg width="20" height="20" fill="none" stroke="#C9972C" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    </div>
+    <div class="stat-label">Revenus du jour</div>
+    <div class="stat-value" style="color:var(--primary);">{{ total_jour|floatformat:0 }}</div>
+    <div class="stat-change">XOF (brut tous revendeurs)</div>
+  </div>
+  <div class="stat-card" style="--accent-color:rgba(4,61,43,.2);">
+    <div class="stat-icon" style="background:rgba(4,61,43,.2);">
+      <svg width="20" height="20" fill="none" stroke="#4ade80" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+    </div>
+    <div class="stat-label">Revenus du mois</div>
+    <div class="stat-value" style="color:#4ade80;">{{ total_mois|floatformat:0 }}</div>
+    <div class="stat-change">XOF (brut ce mois)</div>
+  </div>
+</div>
+
+<!-- Tableau des zones -->
+<div class="card">
+  <div style="padding:20px 24px 0;">
+    <div class="section-head">
+      <h2>Revendeurs WiFi Zone</h2>
+      <span class="badge badge-slate">{{ revendeurs|length }} zone{{ revendeurs|length|pluralize }}</span>
+    </div>
+  </div>
+  {% if revendeurs %}
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Revendeur</th>
+          <th>Type</th>
+          <th>Statut</th>
+          <th>Clients</th>
+          <th>Tickets / jour</th>
+          <th>Revenus jour (XOF)</th>
+          <th>Revenus mois (XOF)</th>
+          <th>Échéance</th>
+          <th>Solde (XOF)</th>
+          <th style="text-align:center;">Rapport</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in revendeurs %}
+        <tr>
+          <td>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div style="width:34px;height:34px;background:rgba(201,151,44,.12);border:1px solid rgba(201,151,44,.25);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--primary);flex-shrink:0;">
+                {{ r.user.username|first|upper }}
+              </div>
+              <div>
+                <div style="font-weight:600;color:var(--text);">{{ r.user.get_full_name|default:r.user.username }}</div>
+                <div style="font-size:11px;color:var(--muted);">
+                  {% if r.user.ticket_prefix %}<span class="mono">{{ r.user.ticket_prefix }}-*</span>{% endif %}
+                  {% if r.user.site %} · {{ r.user.site.name }}{% endif %}
+                </div>
+              </div>
+            </div>
+          </td>
+          <td>
+            {% if r.is_partenaire %}
+            <span class="badge badge-slate" title="Ne peut pas générer de tickets">Partenaire</span>
+            {% else %}
+            <span class="badge badge-green" style="background:rgba(16,185,129,.12);color:var(--green);border:1px solid rgba(16,185,129,.25);">Autonome</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.en_ligne %}
+              <span class="badge badge-green">
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;"></span>
+                En ligne
+              </span>
+            {% elif not r.user.mac_antenne %}
+              <span class="badge badge-slate">MAC non renseignée</span>
+            {% else %}
+              <span class="badge badge-red">Hors ligne</span>
+            {% endif %}
+          </td>
+          <td>
+            <span style="font-size:18px;font-weight:700;color:var(--cyan);">{{ r.clients_connectes }}</span>
+          </td>
+          <td>
+            <span style="font-size:17px;font-weight:700;color:var(--text);">{{ r.tickets_aujourd_hui }}</span>
+            <span style="font-size:11px;color:var(--muted);"> tickets</span>
+          </td>
+          <td style="font-weight:600;color:var(--primary);">{{ r.revenus_jour|floatformat:0 }} XOF</td>
+          <td style="font-weight:600;color:#4ade80;">{{ r.revenus_mois|floatformat:0 }} XOF</td>
+          <td>
+            {% if r.prochaine_echeance %}
+              {% if r.prochaine_echeance < today %}
+                <span class="badge badge-red">{{ r.prochaine_echeance|date:"d/m/Y" }}</span>
+              {% else %}
+                <span style="font-size:13px;color:var(--dim);">{{ r.prochaine_echeance|date:"d/m/Y" }}</span>
+              {% endif %}
+            {% else %}
+              <span style="color:var(--muted);">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <span style="font-weight:600;color:{% if r.solde > 0 %}var(--amber){% else %}var(--dim){% endif %};">
+              {{ r.solde|floatformat:0 }} XOF
+            </span>
+          </td>
+          <td style="text-align:center;">
+            <a href="{% url 'wifi_zone:zone_detail_report' r.user.pk %}" class="btn btn-primary btn-sm">
+              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+              Rapport
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+    <p>Aucun revendeur Wi-Fi Zone configuré.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

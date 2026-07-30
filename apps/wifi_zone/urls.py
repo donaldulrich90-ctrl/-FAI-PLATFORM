@@ -28,4 +28,12 @@ urlpatterns = [
     # PDF
     path("tickets/lot/<int:batch_pk>/pdf/", views.print_batch_pdf, name="print_batch_pdf"),
     path("tickets/pdf/", views.print_tickets_pdf, name="print_tickets_pdf"),
+    # Dashboard WiFi Zones (admin uniquement)
+    path("zones/", views.zones_dashboard, name="zones_dashboard"),
+    path("zones/<int:revendeur_id>/", views.zone_detail_report, name="zone_detail_report"),
+    path("zones/<int:revendeur_id>/export/", views.zone_detail_report_csv, name="zone_detail_report_csv"),
+    # Rapports spécialisés (gardés pour compatibilité)
+    path("zones/<int:revendeur_id>/rapport/", views.zone_daily_report, name="zone_daily_report"),
+    path("zones/<int:revendeur_id>/rapport-mensuel/", views.zone_monthly_report, name="zone_monthly_report"),
+    path("zones/<int:revendeur_id>/export-jour/", views.zone_daily_report_csv, name="zone_daily_report_csv"),
 ]

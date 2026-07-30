@@ -85,8 +85,8 @@ class WifiAccessCodeService:
         from apps.monitoring.audit import log_router_action
         from django.conf import settings
 
-        if quantity < 1 or quantity > 200:
-            raise ValueError("La quantité doit être entre 1 et 200.")
+        if quantity < 1 or quantity > 100:
+            raise ValueError("La quantité doit être entre 1 et 100.")
 
         prefix = (getattr(seller, "ticket_prefix", "") or "").strip().upper()
         if not prefix:

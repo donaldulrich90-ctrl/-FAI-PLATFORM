@@ -608,6 +608,19 @@ def fetch_mikrotik_hotspot_active_users(device: NetworkDevice) -> set[str]:
         return set()
 
 
+def fetch_mikrotik_hotspot_hosts(device: NetworkDevice) -> set[str]:
+    """Retourne les MACs présentes dans /ip hotspot host (connexions antenne actives)."""
+    if not device.is_active:
+        return set()
+    try:
+        with RouterOSClient(device) as client:
+            hosts = client.hotspot_hosts()
+            return {h.get("mac-address", "").upper() for h in hosts if h.get("mac-address")}
+    except RouterOSError as exc:
+        logger.warning("fetch_hotspot_hosts device=%s : %s", device, exc)
+        return set()
+
+
 def fetch_mikrotik_hotspot_all_users(device: NetworkDevice) -> list[dict]:
     """Retourne la liste complète des utilisateurs hotspot provisionnés."""
     if not device.is_active:

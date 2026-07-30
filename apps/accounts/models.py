@@ -19,6 +19,10 @@ class User(AbstractUser):
         SUSPENDU = "suspendu", "Suspendu"
         EXPIRE = "expire", "Expiré"
 
+    class TypeRevendeur(models.TextChoices):
+        AUTONOME = "autonome", "Autonome"
+        PARTENAIRE = "partenaire", "Partenaire"
+
     role = models.CharField(
         max_length=20,
         choices=Role.choices,
@@ -112,6 +116,14 @@ class User(AbstractUser):
         blank=True,
         validators=[MinValueValidator(Decimal("0"))],
     )
+    type_revendeur = models.CharField(
+        "Type de revendeur",
+        max_length=16,
+        choices=TypeRevendeur.choices,
+        default=TypeRevendeur.AUTONOME,
+        blank=True,
+        help_text="AUTONOME : peut générer ses propres tickets. PARTENAIRE : accès lecture seule à ses ventes.",
+    )
 
     class Meta:
         verbose_name = "utilisateur"
@@ -162,6 +174,14 @@ class User(AbstractUser):
     @property
     def is_revendeur(self) -> bool:
         return self.role == self.Role.REVENDEUR
+
+    @property
+    def is_revendeur_autonome(self) -> bool:
+        return self.is_revendeur and self.type_revendeur == self.TypeRevendeur.AUTONOME
+
+    @property
+    def is_revendeur_partenaire(self) -> bool:
+        return self.is_revendeur and self.type_revendeur == self.TypeRevendeur.PARTENAIRE
 
     def can_access_monitoring(self) -> bool:
         return self.is_technician

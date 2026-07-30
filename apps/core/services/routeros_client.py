@@ -283,6 +283,35 @@ class RouterOSClient:
                 entries.append(entry)
         return entries
 
+    def hotspot_hosts(self) -> list[dict]:
+        """Retourne les hôtes hotspot actifs (/ip hotspot host) avec leur adresse MAC."""
+        if self._mode == "dry_run":
+            return []
+
+        if self._mode == "api":
+            try:
+                rows = self._api("/ip/hotspot/host/print")
+                return [dict(r) for r in rows]
+            except Exception as exc:
+                logger.warning("hotspot_hosts API: %s", exc)
+                return []
+
+        rc, out, _ = self._ssh_exec(
+            "/ip hotspot host print terse proplist=mac-address,address,authorized,uptime"
+        )
+        if rc != 0:
+            return []
+        entries: list[dict] = []
+        for line in out.splitlines():
+            entry: dict = {}
+            for key in ("mac-address", "address", "authorized", "uptime"):
+                m = re.search(rf"(?:^|\s){re.escape(key)}=(\S+)", line)
+                if m:
+                    entry[key] = m.group(1)
+            if "mac-address" in entry:
+                entries.append(entry)
+        return entries
+
     def hotspot_active_remove_by_id(self, session_id: str) -> bool:
         """Déconnecte une session hotspot active par son identifiant RouterOS (.id)."""
         if self._mode == "dry_run":

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
+from datetime import date as date_type
 from decimal import Decimal
 
 from django.contrib import messages
@@ -22,6 +25,7 @@ from .router_control import (
     activate_subscriber,
     disconnect_hotspot_session,
     fetch_mikrotik_hotspot_active_details,
+    fetch_mikrotik_hotspot_hosts,
     suspend_subscriber,
     update_subscriber_speed,
 )
@@ -225,13 +229,37 @@ def revendeur_dashboard(request: HttpRequest) -> HttpResponse:
 
 @login_required
 def revendeur_generate_batch(request: HttpRequest) -> HttpResponse:
-    """Formulaire + traitement pour générer un lot de tickets MikroTik."""
-    _ensure_revendeur_or_admin(request.user)
+    """Formulaire + traitement pour générer un lot de tickets MikroTik.
+
+    - Admin : sélectionne un revendeur AUTONOME dans un dropdown.
+    - Revendeur AUTONOME : génère pour lui-même.
+    - Revendeur PARTENAIRE : accès refusé.
+    """
+    user = request.user
+    is_admin = getattr(user, "is_admin_role", False)
+    is_rev = getattr(user, "is_revendeur", False)
+
+    if not (is_admin or is_rev):
+        raise PermissionDenied
+    if is_rev and getattr(user, "is_revendeur_partenaire", False):
+        raise PermissionDenied
+
     from .services.wifi_access_code import WifiAccessCodeService
     from .router_control import default_hotspot_profile_for_duration
 
-    user = request.user
     sites = _tenant_sites(user).order_by("name")
+
+    # Revendeurs AUTONOMES disponibles (pour le dropdown admin)
+    autonomes = []
+    if is_admin:
+        qs = User.objects.filter(
+            role=User.Role.REVENDEUR,
+            type_revendeur=User.TypeRevendeur.AUTONOME,
+        )
+        if not user_sees_all_tenants(user):
+            tid = getattr(user, "tenant_id", None)
+            qs = qs.filter(tenant_id=tid) if tid else qs.none()
+        autonomes = list(qs.select_related("site").order_by("username"))
 
     DURATION_CHOICES = [
         ("3h", "3 Heures"),
@@ -239,15 +267,36 @@ def revendeur_generate_batch(request: HttpRequest) -> HttpResponse:
         ("1w", "7 Jours"),
         ("30j", "30 Jours"),
     ]
-    QUANTITY_CHOICES = [5, 10, 20, 50]
+    MAX_QUANTITY = 100
+    QUANTITY_CHOICES = [5, 10, 20, 50, 100]
 
     if request.method == "POST":
+        # Déterminer le seller
+        if is_admin:
+            rev_pk = request.POST.get("revendeur_pk", "").strip()
+            if not rev_pk:
+                messages.error(request, "Veuillez sélectionner un revendeur AUTONOME.")
+                return redirect("wifi_zone:revendeur_generate_batch")
+            rev_qs = User.objects.filter(
+                role=User.Role.REVENDEUR,
+                type_revendeur=User.TypeRevendeur.AUTONOME,
+            )
+            if not user_sees_all_tenants(user):
+                tid = getattr(user, "tenant_id", None)
+                rev_qs = rev_qs.filter(tenant_id=tid) if tid else rev_qs.none()
+            seller = get_object_or_404(rev_qs, pk=rev_pk)
+        else:
+            seller = user
+
         site_pk = request.POST.get("site_pk", "")
         duration = request.POST.get("duration", "3h")
         try:
             quantity = int(request.POST.get("quantity", "10"))
         except ValueError:
             quantity = 10
+        if quantity > MAX_QUANTITY:
+            messages.error(request, f"La quantité maximale est {MAX_QUANTITY} tickets par lot.")
+            return redirect("wifi_zone:revendeur_generate_batch")
         try:
             unit_price = Decimal(request.POST.get("unit_price", "0"))
         except Exception:
@@ -269,7 +318,7 @@ def revendeur_generate_batch(request: HttpRequest) -> HttpResponse:
                 duration=duration,
                 unit_price_xof=unit_price,
                 quantity=quantity,
-                seller=user,
+                seller=seller,
                 profile=profile,
                 push_to_mikrotik=True,
             )
@@ -292,6 +341,9 @@ def revendeur_generate_batch(request: HttpRequest) -> HttpResponse:
         "sites": sites,
         "duration_choices": DURATION_CHOICES,
         "quantity_choices": QUANTITY_CHOICES,
+        "max_quantity": MAX_QUANTITY,
+        "autonomes": autonomes,
+        "is_admin": is_admin,
     }
     return render(request, "wifi_zone/revendeur_generate_batch.html", context)
 
@@ -645,7 +697,458 @@ def _reply_whatsapp_ticket(ticket):
         pass
 
 
-# ── 8. WEBHOOK WHATSAPP ───────────────────────────────────────────────────────
+# ── 8. DASHBOARD WIFI ZONES ──────────────────────────────────────────────────
+
+_DURATION_LABELS = {"3h": "3 Heures", "1d": "24 Heures", "1w": "7 Jours", "30j": "30 Jours"}
+
+
+def _get_revendeurs_qs(user):
+    qs = User.objects.filter(role=User.Role.REVENDEUR)
+    if not user_sees_all_tenants(user):
+        tid = getattr(user, "tenant_id", None)
+        return qs.filter(tenant_id=tid) if tid else qs.none()
+    return qs
+
+
+@login_required
+def zones_dashboard(request: HttpRequest) -> HttpResponse:
+    """Tableau de bord : vue globale de tous les revendeurs Wi-Fi Zone."""
+    if not getattr(request.user, "is_admin_role", False):
+        raise PermissionDenied
+
+    today = timezone.now().date()
+    month_start = today.replace(day=1)
+
+    revendeurs_qs = _get_revendeurs_qs(request.user).select_related(
+        "site", "tenant", "mikrotik__site"
+    )
+    revendeurs_list = list(revendeurs_qs)
+
+    # Bulk-fetch hotspot data once per MikroTik device (statut + sessions)
+    mikrotik_ids = {rev.mikrotik_id for rev in revendeurs_list if rev.mikrotik_id}
+    device_macs: dict[int, set[str]] = {}
+    device_sessions: dict[int, list[dict]] = {}
+    if mikrotik_ids:
+        from apps.core.models import NetworkDevice as ND
+        for dev in ND.objects.filter(pk__in=mikrotik_ids, is_active=True):
+            device_macs[dev.pk] = fetch_mikrotik_hotspot_hosts(dev)
+            device_sessions[dev.pk] = fetch_mikrotik_hotspot_active_details(dev)
+
+    rows = []
+    for rev in revendeurs_list:
+        # Statut en ligne : MAC antenne présente dans /ip hotspot host
+        en_ligne = False
+        if rev.mac_antenne and rev.mikrotik_id:
+            mac_norm = rev.mac_antenne.upper().replace("-", ":")
+            en_ligne = mac_norm in device_macs.get(rev.mikrotik_id, set())
+
+        # Clients connectés : sessions dont le username commence par le préfixe
+        clients_connectes = 0
+        if rev.ticket_prefix and rev.mikrotik_id:
+            prefix = rev.ticket_prefix.upper()
+            clients_connectes = sum(
+                1 for s in device_sessions.get(rev.mikrotik_id, [])
+                if s.get("user", "").upper().startswith(prefix)
+            )
+
+        tickets_base = Ticket.objects.filter(sold_by=rev)
+        today_agg = tickets_base.filter(created_at__date=today).aggregate(
+            count=Count("id"), brut=Sum("price_xof")
+        )
+        month_agg = tickets_base.filter(created_at__date__gte=month_start).aggregate(
+            brut=Sum("price_xof")
+        )
+
+        rows.append({
+            "user": rev,
+            "en_ligne": en_ligne,
+            "clients_connectes": clients_connectes,
+            "tickets_aujourd_hui": today_agg["count"] or 0,
+            "revenus_jour": today_agg["brut"] or Decimal("0"),
+            "revenus_mois": month_agg["brut"] or Decimal("0"),
+            "prochaine_echeance": rev.date_expiration,
+            "solde": rev.balance_xof,
+            "type_revendeur": rev.type_revendeur,
+            "is_partenaire": getattr(rev, "is_revendeur_partenaire", False),
+        })
+
+    context = {
+        "revendeurs": rows,
+        "today": today,
+        "nb_en_ligne": sum(1 for r in rows if r["en_ligne"]),
+        "total_clients": sum(r["clients_connectes"] for r in rows),
+        "total_jour": sum(r["revenus_jour"] for r in rows),
+        "total_mois": sum(r["revenus_mois"] for r in rows),
+    }
+    return render(request, "wifi_zone/zones_dashboard.html", context)
+
+
+@login_required
+def zone_daily_report(request: HttpRequest, revendeur_id: int) -> HttpResponse:
+    """Rapport journalier détaillé pour un revendeur Wi-Fi Zone."""
+    if not getattr(request.user, "is_admin_role", False):
+        raise PermissionDenied
+
+    rev = get_object_or_404(_get_revendeurs_qs(request.user).select_related("site"), pk=revendeur_id)
+
+    date_str = request.GET.get("date", "")
+    try:
+        selected_date = date_type.fromisoformat(date_str)
+    except (ValueError, TypeError):
+        selected_date = timezone.now().date()
+
+    tickets = (
+        Ticket.objects.filter(sold_by=rev, created_at__date=selected_date)
+        .select_related("site")
+        .order_by("created_at")
+    )
+
+    agg = tickets.aggregate(
+        count=Count("id"),
+        brut=Sum("price_xof"),
+        commission=Sum("commission_amount_xof"),
+        net=Sum("net_to_isp_xof"),
+    )
+
+    from django.db.models.functions import ExtractHour
+    hourly = (
+        tickets.annotate(heure=ExtractHour("created_at"))
+        .values("heure")
+        .annotate(count=Count("id"), total=Sum("price_xof"))
+        .order_by("heure")
+    )
+    hours_count = [0] * 24
+    hours_revenue = [0] * 24
+    for entry in hourly:
+        h = entry["heure"]
+        hours_count[h] = entry["count"]
+        hours_revenue[h] = int(entry["total"] or 0)
+
+    context = {
+        "revendeur": rev,
+        "selected_date": selected_date,
+        "tickets": tickets,
+        "count": agg["count"] or 0,
+        "brut_xof": agg["brut"] or Decimal("0"),
+        "commission_xof": agg["commission"] or Decimal("0"),
+        "net_xof": agg["net"] or Decimal("0"),
+        "hours_labels": json.dumps(list(range(24))),
+        "hours_count": json.dumps(hours_count),
+        "hours_revenue": json.dumps(hours_revenue),
+        "duration_labels": _DURATION_LABELS,
+    }
+    return render(request, "wifi_zone/zone_daily_report.html", context)
+
+
+@login_required
+def zone_monthly_report(request: HttpRequest, revendeur_id: int) -> HttpResponse:
+    """Rapport mensuel avec graphiques et comparaison mois précédent."""
+    if not getattr(request.user, "is_admin_role", False):
+        raise PermissionDenied
+
+    rev = get_object_or_404(_get_revendeurs_qs(request.user).select_related("site"), pk=revendeur_id)
+
+    import calendar
+    today = timezone.now().date()
+    try:
+        year = int(request.GET.get("year", today.year))
+        month = int(request.GET.get("month", today.month))
+        if not 1 <= month <= 12:
+            raise ValueError
+    except (ValueError, TypeError):
+        year, month = today.year, today.month
+
+    month_start = date_type(year, month, 1)
+    month_end = date_type(year, month, calendar.monthrange(year, month)[1])
+    prev_month = month - 1 if month > 1 else 12
+    prev_year = year if month > 1 else year - 1
+    prev_start = date_type(prev_year, prev_month, 1)
+    prev_end = date_type(prev_year, prev_month, calendar.monthrange(prev_year, prev_month)[1])
+
+    tickets_base = Ticket.objects.filter(sold_by=rev)
+
+    from datetime import timedelta
+    from django.db.models.functions import TruncDate
+    daily_qs = (
+        tickets_base.filter(created_at__date__range=(month_start, month_end))
+        .annotate(day=TruncDate("created_at"))
+        .values("day")
+        .annotate(count=Count("id"), total=Sum("price_xof"))
+        .order_by("day")
+    )
+    daily_map = {e["day"]: e for e in daily_qs}
+    days_labels, days_revenue, days_count = [], [], []
+    cur = month_start
+    while cur <= month_end:
+        days_labels.append(cur.strftime("%d"))
+        e = daily_map.get(cur)
+        days_revenue.append(int(e["total"] or 0) if e else 0)
+        days_count.append(e["count"] if e else 0)
+        cur += timedelta(days=1)
+
+    month_agg = tickets_base.filter(created_at__date__range=(month_start, month_end)).aggregate(
+        count=Count("id"),
+        brut=Sum("price_xof"),
+        commission=Sum("commission_amount_xof"),
+        net=Sum("net_to_isp_xof"),
+    )
+    prev_agg = tickets_base.filter(created_at__date__range=(prev_start, prev_end)).aggregate(
+        count=Count("id"), brut=Sum("price_xof")
+    )
+
+    top_durations = (
+        tickets_base.filter(created_at__date__range=(month_start, month_end))
+        .values("duration")
+        .annotate(count=Count("id"), total=Sum("price_xof"))
+        .order_by("-count")
+    )
+    top_dur = [
+        {
+            "label": _DURATION_LABELS.get(d["duration"], d["duration"]),
+            "count": d["count"],
+            "total": d["total"] or Decimal("0"),
+        }
+        for d in top_durations
+    ]
+
+    months = [(i, date_type(year, i, 1).strftime("%B")) for i in range(1, 13)]
+
+    context = {
+        "revendeur": rev,
+        "year": year,
+        "month": month,
+        "month_name": month_start.strftime("%B %Y"),
+        "days_labels": json.dumps(days_labels),
+        "days_revenue": json.dumps(days_revenue),
+        "days_count": json.dumps(days_count),
+        "count": month_agg["count"] or 0,
+        "brut_xof": month_agg["brut"] or Decimal("0"),
+        "commission_xof": month_agg["commission"] or Decimal("0"),
+        "net_xof": month_agg["net"] or Decimal("0"),
+        "prev_count": prev_agg["count"] or 0,
+        "prev_brut_xof": prev_agg["brut"] or Decimal("0"),
+        "top_durations": top_dur,
+        "months": months,
+        "years": range(today.year - 2, today.year + 1),
+    }
+    return render(request, "wifi_zone/zone_monthly_report.html", context)
+
+
+@login_required
+def zone_daily_report_csv(request: HttpRequest, revendeur_id: int) -> HttpResponse:
+    """Export CSV du rapport journalier d'un revendeur."""
+    if not getattr(request.user, "is_admin_role", False):
+        raise PermissionDenied
+
+    rev = get_object_or_404(_get_revendeurs_qs(request.user), pk=revendeur_id)
+
+    date_str = request.GET.get("date", "")
+    try:
+        selected_date = date_type.fromisoformat(date_str)
+    except (ValueError, TypeError):
+        selected_date = timezone.now().date()
+
+    tickets = (
+        Ticket.objects.filter(sold_by=rev, created_at__date=selected_date)
+        .select_related("site")
+        .order_by("created_at")
+    )
+
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";")
+    writer.writerow([
+        "Heure", "Code", "Durée", "Site", "Prix (XOF)",
+        "Commission (XOF)", "Net FAI (XOF)", "Statut",
+    ])
+    for t in tickets:
+        writer.writerow([
+            t.created_at.strftime("%H:%M"),
+            t.code,
+            _DURATION_LABELS.get(t.duration, t.duration),
+            t.site.name if t.site else "",
+            int(t.price_xof),
+            int(t.commission_amount_xof),
+            int(t.net_to_isp_xof),
+            t.get_status_display(),
+        ])
+
+    content = "﻿" + output.getvalue()
+    fname = f"rapport_{rev.username}_{selected_date}.csv"
+    response = HttpResponse(content, content_type="text/csv; charset=utf-8-sig")
+    response["Content-Disposition"] = f'attachment; filename="{fname}"'
+    return response
+
+
+# ── 9. RAPPORT DÉTAILLÉ REVENDEUR (période : jour / semaine / mois) ──────────
+
+def _parse_period_range(request: HttpRequest) -> tuple[str, "date_type", "date_type", int, int]:
+    """Retourne (period, date_start, date_end, year, month) selon les GET params."""
+    from datetime import timedelta
+    import calendar as _cal
+
+    today = timezone.now().date()
+    period = request.GET.get("period", "day")
+    year = today.year
+    month = today.month
+
+    if period == "month":
+        try:
+            year = int(request.GET.get("year", today.year))
+            month = int(request.GET.get("month", today.month))
+            if not 1 <= month <= 12:
+                raise ValueError
+        except (ValueError, TypeError):
+            year, month = today.year, today.month
+        date_start = date_type(year, month, 1)
+        date_end = date_type(year, month, _cal.monthrange(year, month)[1])
+    elif period == "week":
+        try:
+            date_start = date_type.fromisoformat(request.GET.get("date", ""))
+        except (ValueError, TypeError):
+            date_start = today
+        date_start = date_start - timedelta(days=date_start.weekday())
+        date_end = date_start + timedelta(days=6)
+    else:  # day
+        period = "day"
+        try:
+            date_start = date_type.fromisoformat(request.GET.get("date", ""))
+        except (ValueError, TypeError):
+            date_start = today
+        date_end = date_start
+
+    return period, date_start, date_end, year, month
+
+
+@login_required
+def zone_detail_report(request: HttpRequest, revendeur_id: int) -> HttpResponse:
+    """Rapport détaillé d'un revendeur avec sélecteur de période (jour/semaine/mois)."""
+    if not getattr(request.user, "is_admin_role", False):
+        raise PermissionDenied
+
+    rev = get_object_or_404(
+        _get_revendeurs_qs(request.user).select_related("site"), pk=revendeur_id
+    )
+    today = timezone.now().date()
+    period, date_start, date_end, year, month = _parse_period_range(request)
+
+    tickets = (
+        Ticket.objects.filter(sold_by=rev, created_at__date__range=(date_start, date_end))
+        .select_related("site")
+        .order_by("created_at")
+    )
+    agg = tickets.aggregate(
+        count=Count("id"),
+        brut=Sum("price_xof"),
+        commission=Sum("commission_amount_xof"),
+        net=Sum("net_to_isp_xof"),
+    )
+
+    # Données graphique
+    if period == "day":
+        from django.db.models.functions import ExtractHour
+        hourly = (
+            tickets.annotate(heure=ExtractHour("created_at"))
+            .values("heure")
+            .annotate(count=Count("id"), total=Sum("price_xof"))
+            .order_by("heure")
+        )
+        ch_count = [0] * 24
+        ch_revenue = [0] * 24
+        for e in hourly:
+            ch_count[e["heure"]] = e["count"]
+            ch_revenue[e["heure"]] = int(e["total"] or 0)
+        chart_labels = json.dumps([f"{h}h" for h in range(24)])
+        chart_count = json.dumps(ch_count)
+        chart_revenue = json.dumps(ch_revenue)
+    else:
+        from datetime import timedelta
+        from django.db.models.functions import TruncDate
+        daily_qs = (
+            tickets.annotate(day=TruncDate("created_at"))
+            .values("day")
+            .annotate(count=Count("id"), total=Sum("price_xof"))
+            .order_by("day")
+        )
+        daily_map = {e["day"]: e for e in daily_qs}
+        ch_labels_list, ch_count_list, ch_revenue_list = [], [], []
+        cur = date_start
+        while cur <= date_end:
+            e = daily_map.get(cur)
+            ch_labels_list.append(cur.strftime("%d/%m"))
+            ch_count_list.append(e["count"] if e else 0)
+            ch_revenue_list.append(int(e["total"] or 0) if e else 0)
+            cur += timedelta(days=1)
+        chart_labels = json.dumps(ch_labels_list)
+        chart_count = json.dumps(ch_count_list)
+        chart_revenue = json.dumps(ch_revenue_list)
+
+    context = {
+        "revendeur": rev,
+        "period": period,
+        "date_start": date_start,
+        "date_end": date_end,
+        "selected_date": date_start,
+        "year": year,
+        "month": month,
+        "today": today,
+        "tickets": tickets,
+        "count": agg["count"] or 0,
+        "brut_xof": agg["brut"] or Decimal("0"),
+        "commission_xof": agg["commission"] or Decimal("0"),
+        "net_xof": agg["net"] or Decimal("0"),
+        "chart_labels": chart_labels,
+        "chart_count": chart_count,
+        "chart_revenue": chart_revenue,
+        "duration_labels": _DURATION_LABELS,
+        "months": [(i, date_type(today.year, i, 1).strftime("%B")) for i in range(1, 13)],
+        "years": range(today.year - 2, today.year + 1),
+    }
+    return render(request, "wifi_zone/zone_detail_report.html", context)
+
+
+@login_required
+def zone_detail_report_csv(request: HttpRequest, revendeur_id: int) -> HttpResponse:
+    """Export CSV du rapport détaillé (période variable)."""
+    if not getattr(request.user, "is_admin_role", False):
+        raise PermissionDenied
+
+    rev = get_object_or_404(_get_revendeurs_qs(request.user), pk=revendeur_id)
+    period, date_start, date_end, _year, _month = _parse_period_range(request)
+
+    tickets = (
+        Ticket.objects.filter(sold_by=rev, created_at__date__range=(date_start, date_end))
+        .select_related("site")
+        .order_by("created_at")
+    )
+
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";")
+    writer.writerow([
+        "Date", "Heure", "Code", "Durée", "Site", "Prix (XOF)",
+        "Commission (XOF)", "Net FAI (XOF)", "Statut",
+    ])
+    for t in tickets:
+        writer.writerow([
+            t.created_at.strftime("%d/%m/%Y"),
+            t.created_at.strftime("%H:%M"),
+            t.code,
+            _DURATION_LABELS.get(t.duration, t.duration),
+            t.site.name if t.site else "",
+            int(t.price_xof),
+            int(t.commission_amount_xof),
+            int(t.net_to_isp_xof),
+            t.get_status_display(),
+        ])
+
+    period_label = {"day": date_start.isoformat(), "week": f"semaine_{date_start}", "month": f"{_year}-{_month:02d}"}
+    fname = f"rapport_{rev.username}_{period_label.get(period, date_start)}.csv"
+    content = "﻿" + output.getvalue()
+    response = HttpResponse(content, content_type="text/csv; charset=utf-8-sig")
+    response["Content-Disposition"] = f'attachment; filename="{fname}"'
+    return response
+
+
+# ── 10. WEBHOOK WHATSAPP ───────────────────────────────────────────────────────
 
 @csrf_exempt
 def whatsapp_webhook(request: HttpRequest) -> HttpResponse:
