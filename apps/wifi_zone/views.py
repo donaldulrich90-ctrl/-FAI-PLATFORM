@@ -748,7 +748,7 @@ def zones_dashboard(request: HttpRequest) -> HttpResponse:
             prefix = rev.ticket_prefix.upper()
             clients_connectes = sum(
                 1 for s in device_sessions.get(rev.mikrotik_id, [])
-                if s.get("user", "").upper().startswith(prefix)
+                if str(s.get("user", "")).upper().startswith(prefix)
             )
 
         tickets_base = Ticket.objects.filter(sold_by=rev)
