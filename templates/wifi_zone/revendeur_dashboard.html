@@ -85,17 +85,10 @@
 
 <!-- Actions rapides -->
 <div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;" class="anim-up-2">
-  {% if revendeur.type_revendeur != "partenaire" %}
   <a href="{% url 'wifi_zone:revendeur_generate_batch' %}" class="btn btn-primary btn-md">
     <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
     Générer des tickets
   </a>
-  {% else %}
-  <div class="alert alert-info" style="margin-bottom:0;padding:10px 16px;">
-    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-    Compte <strong>Partenaire</strong> — la génération de tickets est effectuée par l'administrateur FAI.
-  </div>
-  {% endif %}
 </div>
 
 <!-- Lots récents -->

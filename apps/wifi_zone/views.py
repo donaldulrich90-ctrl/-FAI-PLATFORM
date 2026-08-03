@@ -241,20 +241,17 @@ def revendeur_generate_batch(request: HttpRequest) -> HttpResponse:
 
     if not (is_admin or is_rev):
         raise PermissionDenied
-    if is_rev and getattr(user, "is_revendeur_partenaire", False):
-        raise PermissionDenied
 
     from .services.wifi_access_code import WifiAccessCodeService
     from .router_control import default_hotspot_profile_for_duration
 
     sites = _tenant_sites(user).order_by("name")
 
-    # Revendeurs AUTONOMES disponibles (pour le dropdown admin)
+    # Revendeurs disponibles (pour le dropdown admin)
     autonomes = []
     if is_admin:
         qs = User.objects.filter(
             role=User.Role.REVENDEUR,
-            type_revendeur=User.TypeRevendeur.AUTONOME,
         )
         if not user_sees_all_tenants(user):
             tid = getattr(user, "tenant_id", None)
@@ -275,11 +272,10 @@ def revendeur_generate_batch(request: HttpRequest) -> HttpResponse:
         if is_admin:
             rev_pk = request.POST.get("revendeur_pk", "").strip()
             if not rev_pk:
-                messages.error(request, "Veuillez sélectionner un revendeur AUTONOME.")
+                messages.error(request, "Veuillez sélectionner un revendeur.")
                 return redirect("wifi_zone:revendeur_generate_batch")
             rev_qs = User.objects.filter(
                 role=User.Role.REVENDEUR,
-                type_revendeur=User.TypeRevendeur.AUTONOME,
             )
             if not user_sees_all_tenants(user):
                 tid = getattr(user, "tenant_id", None)

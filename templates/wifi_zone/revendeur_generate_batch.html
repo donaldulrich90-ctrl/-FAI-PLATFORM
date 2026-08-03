@@ -16,9 +16,9 @@
       <div class="section-head" style="margin-bottom:20px;"><h2>Paramètres du lot</h2></div>
 
       {% if is_admin %}
-      <!-- Sélecteur revendeur AUTONOME (admin uniquement) -->
+      <!-- Sélecteur revendeur (admin uniquement) -->
       <div class="field" style="margin-bottom:18px;">
-        <label>Revendeur <span style="color:var(--green);font-size:11px;">AUTONOME uniquement</span></label>
+        <label>Revendeur</label>
         <select name="revendeur_pk" id="revSelect" required onchange="updatePrefix()">
           <option value="">— Sélectionner un revendeur —</option>
           {% for rev in autonomes %}
@@ -32,7 +32,7 @@
           {% endfor %}
         </select>
         {% if not autonomes %}
-        <div class="help" style="color:var(--amber);">Aucun revendeur AUTONOME configuré avec un préfixe.</div>
+        <div class="help" style="color:var(--amber);">Aucun revendeur configuré avec un préfixe.</div>
         {% endif %}
       </div>
       {% endif %}
