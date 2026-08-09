@@ -99,6 +99,7 @@
     <table class="tbl">
       <thead>
         <tr>
+          <th style="text-align:right;width:36px;">N°</th>
           <th>Heure génération</th>
           <th>Code</th>
           <th>Durée</th>
@@ -113,6 +114,7 @@
       <tbody>
         {% for t in tickets %}
         <tr>
+          <td style="text-align:right;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums;">{{ forloop.counter }}</td>
           <td class="mono" style="color:var(--dim);">{{ t.created_at|date:"H:i" }}</td>
           <td class="mono" style="font-size:12px;">{{ t.code }}</td>
           <td>
@@ -147,7 +149,7 @@
       </tbody>
       <tfoot>
         <tr style="background:rgba(201,151,44,.04);border-top:1px solid var(--border);">
-          <td colspan="4" style="padding:12px 16px;font-weight:700;color:var(--primary);">TOTAUX (validés)</td>
+          <td colspan="5" style="padding:12px 16px;font-weight:700;color:var(--primary);">TOTAUX (validés)</td>
           <td style="text-align:right;padding:12px 16px;font-weight:700;color:var(--primary);">{{ brut_xof|floatformat:0 }}</td>
           <td style="text-align:right;padding:12px 16px;font-weight:700;color:var(--amber);">{{ commission_xof|floatformat:0 }}</td>
           <td style="text-align:right;padding:12px 16px;font-weight:700;color:#4ade80;">{{ net_xof|floatformat:0 }}</td>

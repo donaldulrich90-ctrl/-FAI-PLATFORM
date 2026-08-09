@@ -7,6 +7,7 @@
 <style>
   /* ── Vue écran ── */
   @media screen {
+    .print-page { margin-bottom: 32px; }
     .ticket-grid {
       display: grid;
       grid-template-columns: repeat(5, 1fr);
@@ -23,12 +24,28 @@
       padding: 10px;
       background: #0f172a;
       min-width: 0;
+      position: relative;
     }
     .ticket-site  { color: #10b981; }
     .ticket-value { color: #f1f5f9; }
     .ticket-duration { color: #10b981; }
     .ticket-price    { color: #64748b; }
     .ticket-logo     { color: #475569; }
+    .ticket-num      { color: #64748b; }
+    .page-summary {
+      margin: 8px 8px 0;
+      padding: 10px 16px;
+      background: rgba(201,151,44,.08);
+      border: 1px solid rgba(201,151,44,.2);
+      border-radius: 6px;
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .page-summary-total { font-weight: 700; color: #C9972C; }
   }
 
   /* ── Impression N&B strict (50 tickets / A4) ── */
@@ -39,6 +56,17 @@
     .page-content { padding: 0 !important; }
     body { background: #fff !important; color: #000 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .print-header { display: block !important; }
+
+    .print-page {
+      page-break-after: always;
+      break-after: page;
+      margin: 0;
+      padding: 0;
+    }
+    .print-page:last-child {
+      page-break-after: avoid;
+      break-after: avoid;
+    }
 
     .ticket-grid {
       display: grid;
@@ -56,8 +84,9 @@
       page-break-inside: avoid;
       padding: 2mm;
       box-sizing: border-box;
-      height: 28mm;
+      height: 26mm;
       overflow: hidden;
+      position: relative;
     }
     .ticket-site     { color: #000 !important; }
     .ticket-ssid     { color: #555 !important; }
@@ -67,10 +96,28 @@
     .ticket-price    { color: #333 !important; }
     .ticket-logo     { color: #555 !important; }
     .ticket-meta     { border-top-color: #ccc !important; }
+    .ticket-num      { color: #888 !important; }
+
+    .page-summary {
+      border-top: 0.5px solid #888;
+      padding: 2mm 0;
+      font-size: 8pt;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #fff !important;
+      margin: 0;
+      border-radius: 0 !important;
+      border-left: none !important;
+      border-right: none !important;
+      border-bottom: none !important;
+    }
+    .page-summary-total { font-weight: 700; color: #000 !important; }
   }
 
   /* ── Styles communs ── */
   .ticket-card    { min-width: 0; }
+  .ticket-num     { position: absolute; top: 2px; right: 4px; font-size: 7px; font-weight: 700; }
   .ticket-site    { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 2px; }
   .ticket-ssid    { font-size: 8px; color: #64748b; margin-bottom: 4px; }
   .ticket-label   { font-size: 8px; margin-bottom: 1px; }
@@ -87,7 +134,7 @@
 <div class="no-print" style="margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
   <div>
     <h1 class="page-title">{{ batch.label }}</h1>
-    <p class="page-sub">{{ tickets|length }} ticket{{ tickets|length|pluralize }} — {{ duration_label }} — {{ batch.unit_price_xof|floatformat:0 }} XOF/ticket</p>
+    <p class="page-sub">{{ total }} ticket{{ total|pluralize }} — {{ duration_label }} — {{ batch.unit_price_xof|floatformat:0 }} XOF/ticket</p>
   </div>
   <div style="display:flex;gap:10px;">
     <button onclick="window.print()" class="btn btn-success btn-md">
@@ -103,30 +150,48 @@
 </div>
 
 <!-- En-tête imprimé -->
-<div class="print-header" style="text-align:center;margin-bottom:6mm;">
+<div class="print-header" style="text-align:center;margin-bottom:4mm;">
   <div style="font-size:14pt;font-weight:bold;">GOOD ENGINEERS / FAEST</div>
   <div style="font-size:10pt;">{{ batch.site.name }} — {{ duration_label }} — {{ batch.unit_price_xof|floatformat:0 }} FCFA</div>
 </div>
 
-<!-- Grille tickets -->
-<div class="ticket-grid">
-  {% for ticket in tickets %}
-  <div class="ticket-card">
-    <div class="ticket-site">{{ ticket.site.name }}</div>
-    <div class="ticket-ssid">SSID : {{ ssid }}</div>
+<!-- Pages de tickets -->
+{% for page in pages %}
+<div class="print-page">
 
-    <div class="ticket-label">CODE WIFI</div>
-    <div class="ticket-value">{{ ticket.code }}</div>
-    <div class="ticket-label" style="margin-top:4px;font-style:italic;">Entrez ce code sur la page WiFi</div>
+  <!-- Grille tickets -->
+  <div class="ticket-grid">
+    {% for num, ticket in page.numbered_tickets %}
+    <div class="ticket-card">
+      <span class="ticket-num">{{ num }}/{{ total }}</span>
+      <div class="ticket-site">{{ ticket.site.name }}</div>
+      <div class="ticket-ssid">SSID : {{ ssid }}</div>
 
-    <div class="ticket-meta">
-      <span class="ticket-duration">⏱ {{ ticket.get_duration_display }}</span>
-      <span class="ticket-price">{{ ticket.price_xof|floatformat:0 }} XOF</span>
+      <div class="ticket-label">CODE WIFI</div>
+      <div class="ticket-value">{{ ticket.code }}</div>
+      <div class="ticket-label" style="margin-top:3px;font-style:italic;">Entrez ce code sur la page WiFi</div>
+
+      <div class="ticket-meta">
+        <span class="ticket-duration">⏱ {{ ticket.get_duration_display }}</span>
+        <span class="ticket-price">{{ ticket.price_xof|floatformat:0 }} XOF</span>
+      </div>
+      <div class="ticket-logo">GOOD ENGINEERS / FAEST</div>
     </div>
-    <div class="ticket-logo">GOOD ENGINEERS / FAEST</div>
+    {% empty %}
+    <div class="empty-state"><p>Aucun ticket dans ce lot.</p></div>
+    {% endfor %}
   </div>
-  {% empty %}
-  <div class="empty-state"><p>Aucun ticket dans ce lot.</p></div>
-  {% endfor %}
+
+  <!-- Récapitulatif de la page -->
+  <div class="page-summary">
+    <span>Tickets {{ page.first_num }}–{{ page.last_num }} sur {{ total }} au total</span>
+    <span class="page-summary-total">
+      {{ page.count }} ticket{{ page.count|pluralize }}
+      &times; {{ page.unit_price|floatformat:0 }} XOF
+      = {{ page.total_xof|floatformat:0 }} XOF
+    </span>
+  </div>
+
 </div>
+{% endfor %}
 {% endblock %}

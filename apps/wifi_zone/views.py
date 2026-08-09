@@ -358,12 +358,30 @@ def revendeur_print(request: HttpRequest, batch_pk: int) -> HttpResponse:
         batch_qs = batch_qs.filter(created_by=user)
 
     batch = get_object_or_404(batch_qs, pk=batch_pk)
-    tickets = Ticket.objects.filter(batch=batch).select_related("site").order_by("code")
+    ticket_qs = Ticket.objects.filter(batch=batch).select_related("site").order_by("code")
+    ticket_list = list(ticket_qs)
+    total = len(ticket_list)
+
+    PER_PAGE = 50
+    pages = []
+    for i in range(0, max(1, total), PER_PAGE):
+        chunk = ticket_list[i:i + PER_PAGE]
+        unit_price = int(chunk[0].price_xof) if chunk else 0
+        pages.append({
+            "numbered_tickets": [(i + j + 1, t) for j, t in enumerate(chunk)],
+            "count": len(chunk),
+            "unit_price": unit_price,
+            "total_xof": sum(int(t.price_xof) for t in chunk),
+            "first_num": i + 1,
+            "last_num": i + len(chunk),
+        })
 
     DURATION_LABELS = {"3h": "3 Heures", "1d": "24 Heures", "1w": "7 Jours", "30j": "30 Jours"}
     context = {
         "batch": batch,
-        "tickets": tickets,
+        "tickets": ticket_list,
+        "pages": pages,
+        "total": total,
         "duration_label": DURATION_LABELS.get(batch.duration, batch.duration),
         "ssid": batch.site.name,
     }

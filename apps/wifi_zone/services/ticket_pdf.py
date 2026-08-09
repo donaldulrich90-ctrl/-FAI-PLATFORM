@@ -20,10 +20,11 @@ COLS = 5
 ROWS = 10
 MARGIN_X = 5 * mm
 MARGIN_Y = 5 * mm
+FOOTER_H = 10 * mm  # réservé pour la ligne récapitulative en bas de page
 
 PAGE_W, PAGE_H = A4
 AVAILABLE_W = PAGE_W - 2 * MARGIN_X
-AVAILABLE_H = PAGE_H - 2 * MARGIN_Y
+AVAILABLE_H = PAGE_H - 2 * MARGIN_Y - FOOTER_H
 
 TICKET_W = AVAILABLE_W / COLS
 TICKET_H = AVAILABLE_H / ROWS
@@ -65,6 +66,40 @@ def _draw_cut_lines(c: canvas.Canvas, x: float, y: float, w: float, h: float) ->
     c.setDash()
 
 
+def _draw_page_footer(
+    c: canvas.Canvas,
+    page_tickets: list,
+    page_first: int,
+    page_last: int,
+    total: int,
+    unit_price: int,
+) -> None:
+    """Dessine la ligne récapitulative sous les tickets (dans FOOTER_H)."""
+    page_count = len(page_tickets)
+    page_total = sum(int(t.price_xof) for t in page_tickets)
+
+    # Zone footer : de MARGIN_Y à MARGIN_Y + FOOTER_H
+    footer_y = MARGIN_Y + FOOTER_H / 2 - 1.5 * mm
+
+    c.setStrokeColor(COLOR_LGRAY)
+    c.setLineWidth(0.3)
+    c.line(MARGIN_X, MARGIN_Y + FOOTER_H - 1 * mm, PAGE_W - MARGIN_X, MARGIN_Y + FOOTER_H - 1 * mm)
+
+    unit_str = f"{int(unit_price):,}".replace(",", " ")
+    total_str = f"{page_total:,}".replace(",", " ")
+
+    left_label = f"Tickets {page_first}–{page_last} sur {total} au total"
+    right_label = f"{page_count} tickets × {unit_str} XOF = {total_str} XOF"
+
+    c.setFont("Helvetica", 6)
+    c.setFillColor(COLOR_GRAY)
+    c.drawString(MARGIN_X, footer_y, left_label)
+
+    c.setFont("Helvetica-Bold", 6.5)
+    c.setFillColor(COLOR_DARK)
+    c.drawRightString(PAGE_W - MARGIN_X, footer_y, right_label)
+
+
 def _draw_ticket(
     c: canvas.Canvas,
     ticket,
@@ -73,6 +108,8 @@ def _draw_ticket(
     w: float,
     h: float,
     logo: "ImageReader | None",
+    ticket_num: int,
+    total: int,
 ) -> None:
     """Dessine un ticket dans le rectangle (x, y, w, h) en N&B strict."""
     pad = 1.5 * mm
@@ -129,11 +166,17 @@ def _draw_ticket(
     c.setFillColor(COLOR_GRAY)
     c.drawCentredString(x + w / 2, code_y - 4 * mm, duration_label)
 
-    # ── Site (bas) ───────────────────────────────────────────────────────────
-    site_label = (ticket.site.name if ticket.site else "")[:22]
+    # ── Bas : site (centré) + numéro (droite) ────────────────────────────────
+    bottom_y = y + pad + 0.5 * mm
+    site_label = (ticket.site.name if ticket.site else "")[:18]
     c.setFont("Helvetica", 4.5)
     c.setFillColor(COLOR_LGRAY)
-    c.drawCentredString(x + w / 2, y + pad + 0.5 * mm, site_label)
+    c.drawString(inner_x, bottom_y, site_label)
+
+    num_str = f"{ticket_num}/{total}"
+    c.setFont("Helvetica-Bold", 4.5)
+    c.setFillColor(COLOR_GRAY)
+    c.drawRightString(x + w - pad, bottom_y, num_str)
 
 
 def generate_tickets_pdf(tickets: list, title: str = "Tickets Wi-Fi Zone") -> bytes:
@@ -154,13 +197,24 @@ def generate_tickets_pdf(tickets: list, title: str = "Tickets Wi-Fi Zone") -> by
         page_tickets = ticket_list[page_idx: page_idx + per_page]
 
         for slot, ticket in enumerate(page_tickets):
+            global_num = page_idx + slot + 1
             col = slot % COLS
             row = slot // COLS
 
             x = MARGIN_X + col * TICKET_W
-            y = PAGE_H - MARGIN_Y - (row + 1) * TICKET_H
+            # tickets start above the footer zone
+            y = MARGIN_Y + FOOTER_H + (ROWS - 1 - row) * TICKET_H
 
-            _draw_ticket(c, ticket, x, y, TICKET_W, TICKET_H, logo)
+            _draw_ticket(c, ticket, x, y, TICKET_W, TICKET_H, logo, global_num, total)
+
+        unit_price = int(page_tickets[0].price_xof) if page_tickets else 0
+        _draw_page_footer(
+            c, page_tickets,
+            page_first=page_idx + 1,
+            page_last=page_idx + len(page_tickets),
+            total=total,
+            unit_price=unit_price,
+        )
 
         c.showPage()
 
