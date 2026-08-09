@@ -5,43 +5,80 @@
 
 {% block extra_head %}
 <style>
-  /* ── CSS IMPRESSION ── */
+  /* ── Vue écran ── */
+  @media screen {
+    .ticket-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      padding: 8px;
+    }
+    @media (max-width: 1200px) { .ticket-grid { grid-template-columns: repeat(4, 1fr); } }
+    @media (max-width: 900px)  { .ticket-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 600px)  { .ticket-grid { grid-template-columns: repeat(2, 1fr); } }
+    .print-header { display: none; }
+    .ticket-card {
+      border: 1.5px dashed #334155;
+      border-radius: 6px;
+      padding: 10px;
+      background: #0f172a;
+      min-width: 0;
+    }
+    .ticket-site  { color: #10b981; }
+    .ticket-value { color: #f1f5f9; }
+    .ticket-duration { color: #10b981; }
+    .ticket-price    { color: #64748b; }
+    .ticket-logo     { color: #475569; }
+  }
+
+  /* ── Impression N&B strict (50 tickets / A4) ── */
   @media print {
+    @page { size: A4; margin: 5mm; }
     .sidebar, .topbar, .page-header, .no-print, .sidebar-user { display: none !important; }
     .main-wrap { margin-left: 0 !important; }
     .page-content { padding: 0 !important; }
-    body { background: white !important; color: #000 !important; }
-    .ticket-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6mm; padding: 6mm; }
-    .ticket-card { break-inside: avoid; page-break-inside: avoid; }
+    body { background: #fff !important; color: #000 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .print-header { display: block !important; }
-  }
-  @media screen {
-    .ticket-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-    @media (max-width: 1024px) { .ticket-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 640px)  { .ticket-grid { grid-template-columns: 1fr; } }
-    .print-header { display: none; }
+
+    .ticket-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0;
+      padding: 0;
+      width: 100%;
+    }
+    .ticket-card {
+      border: 0.5px dashed #888 !important;
+      border-radius: 0 !important;
+      background: #fff !important;
+      color: #000 !important;
+      break-inside: avoid;
+      page-break-inside: avoid;
+      padding: 2mm;
+      box-sizing: border-box;
+      height: 28mm;
+      overflow: hidden;
+    }
+    .ticket-site     { color: #000 !important; }
+    .ticket-ssid     { color: #555 !important; }
+    .ticket-label    { color: #555 !important; }
+    .ticket-value    { color: #000 !important; }
+    .ticket-duration { color: #000 !important; }
+    .ticket-price    { color: #333 !important; }
+    .ticket-logo     { color: #555 !important; }
+    .ticket-meta     { border-top-color: #ccc !important; }
   }
 
-  .ticket-card {
-    border: 1.5px dashed #334155;
-    border-radius: 10px;
-    padding: 14px;
-    background: #0f172a;
-    min-width: 0;
-  }
-  @media print {
-    .ticket-card { border: 1px dashed #999; background: #fff; color: #000; border-radius: 4px; }
-  }
-  .ticket-site  { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: #10b981; margin-bottom: 4px; }
-  .ticket-ssid  { font-size: 9px; color: #64748b; margin-bottom: 8px; }
-  .ticket-label { font-size: 9px; color: #64748b; margin-bottom: 2px; }
-  .ticket-value { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; color: #f1f5f9; word-break: break-all; }
-  @media print { .ticket-value { color: #000; } .ticket-site { color: #059669; } }
-  .ticket-meta  { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 6px; border-top: 1px solid #1e293b; }
-  @media print { .ticket-meta { border-top-color: #ddd; } }
-  .ticket-duration { font-size: 10px; font-weight: 700; color: #10b981; }
-  .ticket-price    { font-size: 10px; color: #64748b; }
-  .ticket-logo     { font-size: 8px; color: #64748b; text-align: right; margin-top: 4px; }
+  /* ── Styles communs ── */
+  .ticket-card    { min-width: 0; }
+  .ticket-site    { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 2px; }
+  .ticket-ssid    { font-size: 8px; color: #64748b; margin-bottom: 4px; }
+  .ticket-label   { font-size: 8px; margin-bottom: 1px; }
+  .ticket-value   { font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 11px; font-weight: 700; word-break: break-all; }
+  .ticket-meta    { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; padding-top: 3px; border-top: 1px solid #1e293b; }
+  .ticket-duration { font-size: 8px; font-weight: 700; }
+  .ticket-price    { font-size: 8px; }
+  .ticket-logo     { font-size: 7px; text-align: right; margin-top: 2px; }
 </style>
 {% endblock %}
 

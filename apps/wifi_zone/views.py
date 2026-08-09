@@ -748,11 +748,13 @@ def zones_dashboard(request: HttpRequest) -> HttpResponse:
             )
 
         tickets_base = Ticket.objects.filter(sold_by=rev)
-        today_agg = tickets_base.filter(created_at__date=today).aggregate(
-            count=Count("id"), brut=Sum("price_xof")
+        today_qs = tickets_base.filter(created_at__date=today)
+        today_agg = today_qs.aggregate(
+            count=Count("id"),
+            brut=Sum("price_xof", filter=Q(status=Ticket.Status.USED)),
         )
         month_agg = tickets_base.filter(created_at__date__gte=month_start).aggregate(
-            brut=Sum("price_xof")
+            brut=Sum("price_xof", filter=Q(status=Ticket.Status.USED))
         )
 
         rows.append({
@@ -798,8 +800,9 @@ def zone_daily_report(request: HttpRequest, revendeur_id: int) -> HttpResponse:
         .select_related("site")
         .order_by("created_at")
     )
+    count_generated = tickets.count()
 
-    agg = tickets.aggregate(
+    agg = tickets.filter(status=Ticket.Status.USED).aggregate(
         count=Count("id"),
         brut=Sum("price_xof"),
         commission=Sum("commission_amount_xof"),
@@ -824,6 +827,7 @@ def zone_daily_report(request: HttpRequest, revendeur_id: int) -> HttpResponse:
         "revendeur": rev,
         "selected_date": selected_date,
         "tickets": tickets,
+        "count_generated": count_generated,
         "count": agg["count"] or 0,
         "brut_xof": agg["brut"] or Decimal("0"),
         "commission_xof": agg["commission"] or Decimal("0"),
@@ -882,7 +886,9 @@ def zone_monthly_report(request: HttpRequest, revendeur_id: int) -> HttpResponse
         days_count.append(e["count"] if e else 0)
         cur += timedelta(days=1)
 
-    month_agg = tickets_base.filter(created_at__date__range=(month_start, month_end)).aggregate(
+    month_tickets = tickets_base.filter(created_at__date__range=(month_start, month_end))
+    count_generated = month_tickets.count()
+    month_agg = month_tickets.filter(status=Ticket.Status.USED).aggregate(
         count=Count("id"),
         brut=Sum("price_xof"),
         commission=Sum("commission_amount_xof"),
@@ -917,6 +923,7 @@ def zone_monthly_report(request: HttpRequest, revendeur_id: int) -> HttpResponse
         "days_labels": json.dumps(days_labels),
         "days_revenue": json.dumps(days_revenue),
         "days_count": json.dumps(days_count),
+        "count_generated": count_generated,
         "count": month_agg["count"] or 0,
         "brut_xof": month_agg["brut"] or Decimal("0"),
         "commission_xof": month_agg["commission"] or Decimal("0"),
@@ -954,7 +961,7 @@ def zone_daily_report_csv(request: HttpRequest, revendeur_id: int) -> HttpRespon
     writer = csv.writer(output, delimiter=";")
     writer.writerow([
         "Heure", "Code", "Durée", "Site", "Prix (XOF)",
-        "Commission (XOF)", "Net FAI (XOF)", "Statut",
+        "Commission (XOF)", "Net FAI (XOF)", "Statut", "Heure validation",
     ])
     for t in tickets:
         writer.writerow([
@@ -966,6 +973,7 @@ def zone_daily_report_csv(request: HttpRequest, revendeur_id: int) -> HttpRespon
             int(t.commission_amount_xof),
             int(t.net_to_isp_xof),
             t.get_status_display(),
+            t.used_at.strftime("%H:%M") if t.used_at else "",
         ])
 
     content = "﻿" + output.getvalue()
@@ -1032,7 +1040,8 @@ def zone_detail_report(request: HttpRequest, revendeur_id: int) -> HttpResponse:
         .select_related("site")
         .order_by("created_at")
     )
-    agg = tickets.aggregate(
+    count_generated = tickets.count()
+    agg = tickets.filter(status=Ticket.Status.USED).aggregate(
         count=Count("id"),
         brut=Sum("price_xof"),
         commission=Sum("commission_amount_xof"),
@@ -1088,6 +1097,7 @@ def zone_detail_report(request: HttpRequest, revendeur_id: int) -> HttpResponse:
         "month": month,
         "today": today,
         "tickets": tickets,
+        "count_generated": count_generated,
         "count": agg["count"] or 0,
         "brut_xof": agg["brut"] or Decimal("0"),
         "commission_xof": agg["commission"] or Decimal("0"),
@@ -1121,7 +1131,7 @@ def zone_detail_report_csv(request: HttpRequest, revendeur_id: int) -> HttpRespo
     writer = csv.writer(output, delimiter=";")
     writer.writerow([
         "Date", "Heure", "Code", "Durée", "Site", "Prix (XOF)",
-        "Commission (XOF)", "Net FAI (XOF)", "Statut",
+        "Commission (XOF)", "Net FAI (XOF)", "Statut", "Heure validation",
     ])
     for t in tickets:
         writer.writerow([
@@ -1134,6 +1144,7 @@ def zone_detail_report_csv(request: HttpRequest, revendeur_id: int) -> HttpRespo
             int(t.commission_amount_xof),
             int(t.net_to_isp_xof),
             t.get_status_display(),
+            t.used_at.strftime("%d/%m/%Y %H:%M") if t.used_at else "",
         ])
 
     period_label = {"day": date_start.isoformat(), "week": f"semaine_{date_start}", "month": f"{_year}-{_month:02d}"}

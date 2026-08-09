@@ -93,17 +93,29 @@
   </form>
 </div>
 
+<!-- Indicateur générés vs validés -->
+<div style="background:rgba(6,182,212,.06);border:1px solid rgba(6,182,212,.2);border-radius:10px;padding:10px 16px;margin-bottom:16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+  <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:rgba(6,182,212,.8);flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path stroke-linecap="round" d="M12 8v4l3 3"/></svg>
+  <span style="font-size:13px;color:var(--dim);">
+    <strong style="color:var(--text);">{{ count_generated }}</strong> ticket{{ count_generated|pluralize }} généré{{ count_generated|pluralize }} ·
+    <strong style="color:#4ade80;">{{ count }}</strong> validé{{ count|pluralize }} (comptabilisé{{ count|pluralize }})
+    {% if count_generated and count %}
+    · <strong style="color:var(--cyan);">{% widthratio count count_generated 100 %}%</strong> de conversion
+    {% endif %}
+  </span>
+</div>
+
 <!-- KPIs -->
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px;">
   <div class="stat-card" style="--accent-color:rgba(6,182,212,.1);">
-    <div class="stat-label">Tickets vendus</div>
+    <div class="stat-label">Tickets validés</div>
     <div class="stat-value" style="color:var(--cyan);">{{ count }}</div>
-    <div class="stat-change">sur la période</div>
+    <div class="stat-change">sur {{ count_generated }} généré{{ count_generated|pluralize }}</div>
   </div>
   <div class="stat-card" style="--accent-color:rgba(201,151,44,.1);">
     <div class="stat-label">Revenus bruts</div>
     <div class="stat-value" style="color:var(--primary);font-size:22px;">{{ brut_xof|floatformat:0 }}</div>
-    <div class="stat-change">XOF</div>
+    <div class="stat-change">XOF · tickets validés</div>
   </div>
   <div class="stat-card" style="--accent-color:rgba(245,158,11,.1);">
     <div class="stat-label">Commission revendeur</div>
@@ -148,7 +160,8 @@
   <div style="padding:20px 24px 0;">
     <div class="section-head">
       <h2>Détail des ventes</h2>
-      {% if count %}<span class="badge badge-cyan">{{ count }} ticket{{ count|pluralize }}</span>{% endif %}
+      {% if count_generated %}<span class="badge badge-slate" style="margin-right:4px;">{{ count_generated }} généré{{ count_generated|pluralize }}</span>{% endif %}
+      {% if count %}<span class="badge badge-green">{{ count }} validé{{ count|pluralize }}</span>{% endif %}
     </div>
   </div>
 
@@ -158,7 +171,7 @@
       <thead>
         <tr>
           <th>Date</th>
-          <th>Heure</th>
+          <th>Heure génération</th>
           <th>Code</th>
           <th>Durée</th>
           <th>Site</th>
@@ -166,6 +179,7 @@
           <th style="text-align:right;">Commission (XOF)</th>
           <th style="text-align:right;">Net FAI (XOF)</th>
           <th>Statut</th>
+          <th>Heure validation</th>
         </tr>
       </thead>
       <tbody>
@@ -178,28 +192,37 @@
             <span class="badge badge-slate">{{ t.get_duration_display }}</span>
           </td>
           <td style="color:var(--dim);">{{ t.site.name }}</td>
+          {% if t.status == "used" %}
           <td style="text-align:right;font-weight:600;color:var(--primary);">{{ t.price_xof|floatformat:0 }}</td>
           <td style="text-align:right;color:var(--amber);">{{ t.commission_amount_xof|floatformat:0 }}</td>
           <td style="text-align:right;color:#4ade80;">{{ t.net_to_isp_xof|floatformat:0 }}</td>
+          {% else %}
+          <td style="text-align:right;color:var(--dim);">{{ t.price_xof|floatformat:0 }}</td>
+          <td style="text-align:right;color:var(--dim);">—</td>
+          <td style="text-align:right;color:var(--dim);">—</td>
+          {% endif %}
           <td>
             {% if t.status == "used" %}
-              <span class="badge badge-green">Utilisé</span>
+              <span class="badge badge-green">Validé</span>
             {% elif t.status == "expired" %}
               <span class="badge badge-red">Expiré</span>
             {% else %}
               <span class="badge badge-slate">Disponible</span>
             {% endif %}
           </td>
+          <td class="mono" style="color:#4ade80;font-size:12px;">
+            {% if t.used_at %}{{ t.used_at|date:"H:i" }}{% else %}<span style="color:var(--dim);">—</span>{% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
       <tfoot>
         <tr style="background:rgba(201,151,44,.04);border-top:1px solid var(--border);">
-          <td colspan="5" style="padding:12px 16px;font-weight:700;color:var(--primary);">TOTAUX</td>
+          <td colspan="5" style="padding:12px 16px;font-weight:700;color:var(--primary);">TOTAUX (validés)</td>
           <td style="text-align:right;padding:12px 16px;font-weight:700;color:var(--primary);">{{ brut_xof|floatformat:0 }}</td>
           <td style="text-align:right;padding:12px 16px;font-weight:700;color:var(--amber);">{{ commission_xof|floatformat:0 }}</td>
           <td style="text-align:right;padding:12px 16px;font-weight:700;color:#4ade80;">{{ net_xof|floatformat:0 }}</td>
-          <td></td>
+          <td colspan="2"></td>
         </tr>
       </tfoot>
     </table>

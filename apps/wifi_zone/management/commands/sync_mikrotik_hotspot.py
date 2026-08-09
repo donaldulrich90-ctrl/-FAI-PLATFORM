@@ -97,11 +97,16 @@ class Command(BaseCommand):
                         f"  ✓ {code} — actif sur routeur → marquer USED"
                     )
                     if not dry_run:
+                        ticket_now = timezone.now()
                         Ticket.objects.filter(pk=ticket.pk).update(
                             status=Ticket.Status.USED,
                             is_used=True,
-                            hotspot_synced_at=now,
+                            hotspot_synced_at=ticket_now,
                             hotspot_sync_error="",
+                        )
+                        # Estampille used_at uniquement si pas déjà renseigné
+                        Ticket.objects.filter(pk=ticket.pk, used_at__isnull=True).update(
+                            used_at=ticket_now,
                         )
                     total_synced += 1
 

@@ -147,8 +147,12 @@ class Ticket(models.Model):
             self.is_used = False
         elif self.status == self.Status.USED:
             self.is_used = True
+            if not self.used_at:
+                self.used_at = timezone.now()
         elif self.is_used:
             self.status = self.Status.USED
+            if not self.used_at:
+                self.used_at = timezone.now()
         self.compute_commission_amounts()
         super().save(*args, **kwargs)
 

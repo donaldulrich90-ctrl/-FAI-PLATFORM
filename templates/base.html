@@ -4,6 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Faso ISP Manager{% endblock %}</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#043D2B">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Faso ISP">
+  <link rel="apple-touch-icon" href="/static/img/icons/icon-180.png">
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   {% block leaflet_assets %}
@@ -594,5 +604,34 @@
 </script>
 {% block extra_js %}{% endblock %}
 {% block extra_body %}{% endblock %}
+
+<!-- iOS install hint (shown once, only on Safari iOS before install) -->
+<div id="ios-install-hint" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9999;background:#043D2B;color:#f1f5f9;border:1px solid #C9972C;border-radius:14px;padding:12px 18px;font-size:13px;text-align:center;max-width:320px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.6);">
+  <div style="font-weight:700;margin-bottom:4px;color:#C9972C;">Installer l'application</div>
+  <div style="color:#94a3b8;line-height:1.5;">Appuyez sur <strong style="color:#f1f5f9;">⎋ Partager</strong> puis <strong style="color:#f1f5f9;">Sur l'écran d'accueil</strong> pour installer Faso ISP.</div>
+  <button onclick="document.getElementById('ios-install-hint').style.display='none';localStorage.setItem('pwa-hint-dismissed','1')" style="margin-top:10px;background:none;border:1px solid #475569;color:#94a3b8;border-radius:8px;padding:6px 16px;font-size:12px;cursor:pointer;">Fermer</button>
+</div>
+
+<script>
+// ── Service Worker ────────────────────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+  });
+}
+
+// ── iOS install hint ──────────────────────────────────────────────────────────
+(function() {
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+    || window.navigator.standalone === true;
+  const dismissed = localStorage.getItem('pwa-hint-dismissed');
+  if (isIos && !isStandalone && !dismissed) {
+    setTimeout(() => {
+      document.getElementById('ios-install-hint').style.display = 'block';
+    }, 3000);
+  }
+})();
+</script>
 </body>
 </html>
