@@ -336,6 +336,23 @@ class RouterOSClient:
         rc, out, err = self._ssh_exec(f"/ip hotspot active remove {safe_id}")
         return _ros_remove_ok(rc, out, err)
 
+    def hotspot_user_reset_counters(self, name: str) -> bool:
+        """Remet à zéro les compteurs uptime/bytes d'un utilisateur hotspot."""
+        if self._mode == "dry_run":
+            logger.info("[DRY-RUN] hotspot_user_reset_counters name=%s on %s", name, self.device.management_host)
+            return True
+        if self._mode == "api":
+            try:
+                rows = self._api("/ip/hotspot/user/print", **{"?name": name})
+                for row in rows:
+                    self._api("/ip/hotspot/user/reset-counters", **{".id": row[".id"]})
+                return True
+            except Exception as exc:
+                logger.warning("hotspot_user_reset_counters API %s : %s", name, exc)
+                return False
+        rc, out, err = self._ssh_exec(f'/ip hotspot user reset-counters [find name="{name}"]')
+        return _ros_remove_ok(rc, out, err)
+
     def hotspot_user_add(
         self,
         name: str,

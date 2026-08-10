@@ -1173,6 +1173,241 @@ def zone_detail_report_csv(request: HttpRequest, revendeur_id: int) -> HttpRespo
     return response
 
 
+# ── 10. TICKETS IMPRIMÉS (listing + sync status) ─────────────────────────────
+
+@login_required
+def tickets_imprime_list(request: HttpRequest) -> HttpResponse:
+    """Liste paginée des tickets Wi-Fi Zone avec statut sync hotspot et uptime en temps réel."""
+    _ensure_admin_or_tech(request.user)
+
+    sites = list(_tenant_sites(request.user).order_by("name"))
+
+    qs = Ticket.objects.select_related("site", "batch", "sold_by").order_by("-created_at")
+    if not user_sees_all_tenants(request.user):
+        tid = getattr(request.user, "tenant_id", None)
+        qs = qs.filter(site__tenant_id=tid) if tid else qs.none()
+
+    site_filter = request.GET.get("site", "")
+    batch_filter = request.GET.get("batch", "")
+    status_filter = request.GET.get("status", "")
+    q = request.GET.get("q", "").strip()
+
+    if site_filter:
+        qs = qs.filter(site__site_id=site_filter)
+    if batch_filter:
+        try:
+            qs = qs.filter(batch_id=int(batch_filter))
+        except ValueError:
+            pass
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    if q:
+        qs = qs.filter(Q(code__icontains=q))
+
+    tickets = list(qs[:200])
+
+    # Fetch uptime per site (one API call per unique MikroTik)
+    from .router_control import resolve_wifi_zone_mikrotik_for_site
+    site_ids_needed = {t.site_id for t in tickets}
+    site_user_map: dict[int, dict[str, dict]] = {}
+    for site_obj in sites:
+        if site_obj.pk in site_ids_needed:
+            device = resolve_wifi_zone_mikrotik_for_site(site_obj)
+            if device:
+                try:
+                    from apps.core.services.routeros_client import RouterOSClient, RouterOSError
+                    with RouterOSClient(device) as client:
+                        rows = client.hotspot_all_users()
+                        active_rows = client.hotspot_active_details()
+                    active_map = {r.get("user", ""): r for r in active_rows if r.get("user")}
+                    site_user_map[site_obj.pk] = {
+                        r.get("name", ""): {
+                            "bytes_in": r.get("bytes-in", "0"),
+                            "bytes_out": r.get("bytes-out", "0"),
+                            "disabled": r.get("disabled", "false"),
+                            "uptime": active_map.get(r.get("name", ""), {}).get("uptime", ""),
+                        }
+                        for r in rows if r.get("name")
+                    }
+                except Exception:
+                    site_user_map[site_obj.pk] = {}
+            else:
+                site_user_map[site_obj.pk] = {}
+
+    enriched = []
+    for t in tickets:
+        user_info = site_user_map.get(t.site_id, {}).get(t.code, None)
+        enriched.append({
+            "ticket": t,
+            "on_router": user_info is not None,
+            "uptime": user_info.get("uptime", "") if user_info else "",
+            "sync_icon": (
+                "ok" if (t.hotspot_synced_at and not t.hotspot_sync_error)
+                else ("error" if t.hotspot_sync_error
+                      else "pending")
+            ),
+        })
+
+    batches = WifiTicketBatch.objects.order_by("-created_at")[:50]
+    if not user_sees_all_tenants(request.user):
+        tid = getattr(request.user, "tenant_id", None)
+        batches = batches.filter(site__tenant_id=tid) if tid else batches.none()
+
+    context = {
+        "enriched": enriched,
+        "sites": sites,
+        "batches": list(batches),
+        "site_filter": site_filter,
+        "batch_filter": batch_filter,
+        "status_filter": status_filter,
+        "q": q,
+        "status_choices": Ticket.Status.choices,
+        "total": len(enriched),
+    }
+    return render(request, "wifi_zone/tickets_imprime_list.html", context)
+
+
+# ── 11. SUPPRESSION TICKET ────────────────────────────────────────────────────
+
+@login_required
+@require_POST
+def ticket_delete(request: HttpRequest, pk: int) -> JsonResponse:
+    """Supprime un ticket : retire du MikroTik d'abord, puis de la DB."""
+    _ensure_admin_or_tech(request.user)
+
+    qs = Ticket.objects.select_related("site")
+    if not user_sees_all_tenants(request.user):
+        tid = getattr(request.user, "tenant_id", None)
+        qs = qs.filter(site__tenant_id=tid) if tid else qs.none()
+
+    ticket = get_object_or_404(qs, pk=pk)
+
+    from .router_control import remove_wifi_zone_hotspot_for_ticket
+    ok, err = remove_wifi_zone_hotspot_for_ticket(
+        ticket,
+        performed_by=request.user,
+        ip_address=request.META.get("REMOTE_ADDR"),
+    )
+    if not ok:
+        return JsonResponse({"ok": False, "error": f"Erreur MikroTik : {err}"})
+
+    ticket.delete()
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@require_POST
+def ticket_batch_delete(request: HttpRequest, batch_pk: int) -> JsonResponse:
+    """Supprime tous les tickets d'un lot : retire du MikroTik puis de la DB."""
+    _ensure_admin_or_tech(request.user)
+
+    batch_qs = WifiTicketBatch.objects.select_related("site")
+    if not user_sees_all_tenants(request.user):
+        tid = getattr(request.user, "tenant_id", None)
+        batch_qs = batch_qs.filter(site__tenant_id=tid) if tid else batch_qs.none()
+
+    batch = get_object_or_404(batch_qs, pk=batch_pk)
+    tickets = list(Ticket.objects.filter(batch=batch).select_related("site"))
+
+    from .router_control import resolve_wifi_zone_mikrotik_for_site
+    from apps.core.services.routeros_client import RouterOSClient, RouterOSError
+    from apps.monitoring.audit import log_router_action
+    from django.conf import settings as _settings
+
+    failed_codes: list[str] = []
+    deleted = 0
+    ip_address = request.META.get("REMOTE_ADDR")
+    dry_run = bool(getattr(_settings, "ROUTER_CONTROL_DRY_RUN", False))
+
+    device = resolve_wifi_zone_mikrotik_for_site(batch.site) if tickets else None
+
+    if device is None:
+        # No MikroTik for this site — delete directly from DB
+        for ticket in tickets:
+            ticket.delete()
+            deleted += 1
+    else:
+        try:
+            with RouterOSClient(device) as client:
+                for ticket in tickets:
+                    code = ticket.code.strip()
+                    ok = client.hotspot_user_remove(code)
+                    log_router_action(
+                        device,
+                        "hotspot_remove",
+                        target=code,
+                        command_sent=f"hotspot user remove [find name={code}]",
+                        success=ok,
+                        error_message="" if ok else "Échec suppression utilisateur RouterOS.",
+                        dry_run=dry_run,
+                        performed_by=request.user,
+                        ip_address=ip_address,
+                    )
+                    if ok:
+                        ticket.delete()
+                        deleted += 1
+                    else:
+                        failed_codes.append(code)
+        except RouterOSError as exc:
+            return JsonResponse({
+                "ok": False,
+                "deleted": deleted,
+                "error": f"MikroTik inaccessible : {exc}",
+                "failed_codes": [],
+            })
+
+    if failed_codes:
+        return JsonResponse({
+            "ok": False,
+            "deleted": deleted,
+            "error": f"MikroTik inaccessible pour {len(failed_codes)} ticket(s). DB non modifiée pour ces tickets.",
+            "failed_codes": failed_codes[:10],
+        })
+
+    if not Ticket.objects.filter(batch=batch).exists():
+        batch.delete()
+    return JsonResponse({"ok": True, "deleted": deleted})
+
+
+# ── 12. RE-SYNCHRONISATION TICKET ─────────────────────────────────────────────
+
+@login_required
+@require_POST
+def ticket_resync(request: HttpRequest, pk: int) -> JsonResponse:
+    """Re-provisionne un ticket sur MikroTik et remet les compteurs à zéro."""
+    _ensure_admin_or_tech(request.user)
+
+    qs = Ticket.objects.select_related("site")
+    if not user_sees_all_tenants(request.user):
+        tid = getattr(request.user, "tenant_id", None)
+        qs = qs.filter(site__tenant_id=tid) if tid else qs.none()
+
+    ticket = get_object_or_404(qs, pk=pk)
+
+    from .router_control import provision_wifi_zone_hotspot_for_ticket, resolve_wifi_zone_mikrotik_for_site
+    from apps.core.services.routeros_client import RouterOSClient, RouterOSError
+
+    ok, err = provision_wifi_zone_hotspot_for_ticket(
+        ticket,
+        performed_by=request.user,
+        ip_address=request.META.get("REMOTE_ADDR"),
+    )
+
+    now = timezone.now()
+    if ok:
+        Ticket.objects.filter(pk=ticket.pk).update(
+            hotspot_synced_at=now,
+            hotspot_sync_error="",
+        )
+        return JsonResponse({"ok": True, "synced_at": now.strftime("%d/%m/%Y %H:%M")})
+    else:
+        Ticket.objects.filter(pk=ticket.pk).update(
+            hotspot_synced_at=None,
+            hotspot_sync_error=err[:512],
+        )
+        return JsonResponse({"ok": False, "error": err})
+
+
 # ── 10. WEBHOOK WHATSAPP ───────────────────────────────────────────────────────
 
 @csrf_exempt

@@ -28,6 +28,13 @@ urlpatterns = [
     # PDF
     path("tickets/lot/<int:batch_pk>/pdf/", views.print_batch_pdf, name="print_batch_pdf"),
     path("tickets/pdf/", views.print_tickets_pdf, name="print_tickets_pdf"),
+    # Tickets imprimés (listing + sync status)
+    path("tickets/imprimes/", views.tickets_imprime_list, name="tickets_imprime_list"),
+    # Suppression de tickets
+    path("tickets/hotspot/<int:pk>/supprimer/", views.ticket_delete, name="ticket_delete"),
+    path("tickets/lot/<int:batch_pk>/supprimer/", views.ticket_batch_delete, name="ticket_batch_delete"),
+    # Re-synchronisation ticket
+    path("tickets/hotspot/<int:pk>/resync/", views.ticket_resync, name="ticket_resync"),
     # Dashboard WiFi Zones (admin uniquement)
     path("zones/", views.zones_dashboard, name="zones_dashboard"),
     path("zones/<int:revendeur_id>/", views.zone_detail_report, name="zone_detail_report"),

@@ -148,8 +148,12 @@ class WifiAccessCodeService:
                 dry_run = bool(getattr(settings, "ROUTER_CONTROL_DRY_RUN", False))
                 server = (getattr(settings, "MIKROTIK_HOTSPOT_SERVER", "") or "").strip()
 
+                from django.utils import timezone as _tz
+                from apps.wifi_zone.models import Ticket as _Ticket
+
                 failed: list[str] = []
                 try:
+                    now_sync = _tz.now()
                     with RouterOSClient(device) as client:
                         for ticket in tickets:
                             # Mikhmon : username = password = code (idempotent)
@@ -161,8 +165,17 @@ class WifiAccessCodeService:
                                 comment=f"faso-revendeur-{prefix}",
                                 server=server,
                             )
-                            if not ok:
+                            if ok:
+                                _Ticket.objects.filter(pk=ticket.pk).update(
+                                    hotspot_synced_at=now_sync,
+                                    hotspot_sync_error="",
+                                )
+                            else:
                                 failed.append(f"{ticket.code}: {err}")
+                                _Ticket.objects.filter(pk=ticket.pk).update(
+                                    hotspot_synced_at=None,
+                                    hotspot_sync_error=err[:512],
+                                )
                     if failed:
                         errors.extend(failed[:5])
                     log_router_action(
@@ -176,7 +189,12 @@ class WifiAccessCodeService:
                         performed_by=seller,
                     )
                 except RouterOSError as exc:
-                    errors.append(f"Connexion MikroTik impossible : {exc}")
+                    conn_err = f"Connexion MikroTik impossible : {exc}"
+                    errors.append(conn_err)
+                    _Ticket.objects.filter(pk__in=[t.pk for t in tickets]).update(
+                        hotspot_synced_at=None,
+                        hotspot_sync_error=str(exc)[:512],
+                    )
 
         return tickets, errors
 
