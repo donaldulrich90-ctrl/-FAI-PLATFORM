@@ -1275,7 +1275,12 @@ def tickets_imprime_list(request: HttpRequest) -> HttpResponse:
 @login_required
 @require_POST
 def ticket_delete(request: HttpRequest, pk: int) -> JsonResponse:
-    """Supprime un ticket : retire du MikroTik d'abord, puis de la DB."""
+    """
+    Supprime un ticket.
+    - MikroTik joignable : retire l'utilisateur hotspot (absent = succès), puis supprime DB.
+    - MikroTik injoignable : retourne connection_failed=True sans supprimer.
+    - force=1 : saute le MikroTik, supprime uniquement de la DB.
+    """
     _ensure_admin_or_tech(request.user)
 
     qs = Ticket.objects.select_related("site")
@@ -1284,15 +1289,39 @@ def ticket_delete(request: HttpRequest, pk: int) -> JsonResponse:
         qs = qs.filter(site__tenant_id=tid) if tid else qs.none()
 
     ticket = get_object_or_404(qs, pk=pk)
+    force = request.POST.get("force") == "1"
 
-    from .router_control import remove_wifi_zone_hotspot_for_ticket
-    ok, err = remove_wifi_zone_hotspot_for_ticket(
-        ticket,
-        performed_by=request.user,
-        ip_address=request.META.get("REMOTE_ADDR"),
-    )
-    if not ok:
-        return JsonResponse({"ok": False, "error": f"Erreur MikroTik : {err}"})
+    from .router_control import resolve_wifi_zone_mikrotik_for_site
+    from apps.core.services.routeros_client import RouterOSClient, RouterOSError
+    from apps.monitoring.audit import log_router_action
+    from django.conf import settings as _settings
+
+    ip_address = request.META.get("REMOTE_ADDR")
+    dry_run = bool(getattr(_settings, "ROUTER_CONTROL_DRY_RUN", False))
+    device = resolve_wifi_zone_mikrotik_for_site(ticket.site)
+
+    if device and not force:
+        code = ticket.code.strip()
+        try:
+            with RouterOSClient(device) as client:
+                ok = client.hotspot_user_remove(code)
+            log_router_action(
+                device,
+                "hotspot_remove",
+                target=code,
+                command_sent=f"hotspot user remove [find name={code}]",
+                success=ok,
+                error_message="" if ok else "Utilisateur absent ou erreur RouterOS.",
+                dry_run=dry_run,
+                performed_by=request.user,
+                ip_address=ip_address,
+            )
+        except RouterOSError as exc:
+            return JsonResponse({
+                "ok": False,
+                "error": f"MikroTik inaccessible : {exc}",
+                "connection_failed": True,
+            })
 
     ticket.delete()
     return JsonResponse({"ok": True})
@@ -1301,7 +1330,12 @@ def ticket_delete(request: HttpRequest, pk: int) -> JsonResponse:
 @login_required
 @require_POST
 def ticket_batch_delete(request: HttpRequest, batch_pk: int) -> JsonResponse:
-    """Supprime tous les tickets d'un lot : retire du MikroTik puis de la DB."""
+    """
+    Supprime tous les tickets d'un lot.
+    - Pour chaque ticket : retire du MikroTik (ok=False → absent, on supprime quand même).
+    - Si le MikroTik est injoignable (RouterOSError) : retourne connection_failed=True.
+    - force=1 : saute le MikroTik, supprime uniquement de la DB.
+    """
     _ensure_admin_or_tech(request.user)
 
     batch_qs = WifiTicketBatch.objects.select_related("site")
@@ -1317,15 +1351,14 @@ def ticket_batch_delete(request: HttpRequest, batch_pk: int) -> JsonResponse:
     from apps.monitoring.audit import log_router_action
     from django.conf import settings as _settings
 
-    failed_codes: list[str] = []
+    force = request.POST.get("force") == "1"
     deleted = 0
     ip_address = request.META.get("REMOTE_ADDR")
     dry_run = bool(getattr(_settings, "ROUTER_CONTROL_DRY_RUN", False))
 
     device = resolve_wifi_zone_mikrotik_for_site(batch.site) if tickets else None
 
-    if device is None:
-        # No MikroTik for this site — delete directly from DB
+    if force or device is None:
         for ticket in tickets:
             ticket.delete()
             deleted += 1
@@ -1341,31 +1374,20 @@ def ticket_batch_delete(request: HttpRequest, batch_pk: int) -> JsonResponse:
                         target=code,
                         command_sent=f"hotspot user remove [find name={code}]",
                         success=ok,
-                        error_message="" if ok else "Échec suppression utilisateur RouterOS.",
+                        error_message="" if ok else "Utilisateur absent ou erreur RouterOS.",
                         dry_run=dry_run,
                         performed_by=request.user,
                         ip_address=ip_address,
                     )
-                    if ok:
-                        ticket.delete()
-                        deleted += 1
-                    else:
-                        failed_codes.append(code)
+                    ticket.delete()
+                    deleted += 1
         except RouterOSError as exc:
             return JsonResponse({
                 "ok": False,
                 "deleted": deleted,
                 "error": f"MikroTik inaccessible : {exc}",
-                "failed_codes": [],
+                "connection_failed": True,
             })
-
-    if failed_codes:
-        return JsonResponse({
-            "ok": False,
-            "deleted": deleted,
-            "error": f"MikroTik inaccessible pour {len(failed_codes)} ticket(s). DB non modifiée pour ces tickets.",
-            "failed_codes": failed_codes[:10],
-        })
 
     if not Ticket.objects.filter(batch=batch).exists():
         batch.delete()

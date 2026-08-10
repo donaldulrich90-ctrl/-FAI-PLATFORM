@@ -209,35 +209,42 @@
   </div>
 </div>
 
+<!-- Overlay suppression ticket -->
+<div id="overlay-delete" onclick="closeModal()" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9000;"></div>
 <!-- Modal confirmation suppression ticket -->
-<div id="modal-delete" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;align-items:center;justify-content:center;">
-  <div class="card" style="max-width:420px;width:90%;padding:28px;margin:0 auto;">
-    <h3 style="margin:0 0 12px;font-size:16px;color:var(--text);">Confirmer la suppression</h3>
-    <p style="font-size:14px;color:var(--dim);margin-bottom:20px;">
-      Supprimer le ticket <strong id="modal-code" class="mono"></strong> ?<br>
-      Le compte hotspot sera d'abord retiré du MikroTik.
-    </p>
-    <div style="display:flex;gap:10px;justify-content:flex-end;">
-      <button class="btn btn-ghost btn-sm" onclick="closeModal()">Annuler</button>
-      <button id="modal-confirm-btn" class="btn btn-sm" style="background:#EF4444;color:#fff;border:none;">Supprimer</button>
-    </div>
+<div id="modal-delete" class="card" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9001;max-width:420px;width:90%;padding:28px;">
+  <h3 style="margin:0 0 12px;font-size:16px;color:var(--text);">Confirmer la suppression</h3>
+  <p style="font-size:14px;color:var(--dim);margin-bottom:20px;">
+    Supprimer le ticket <strong id="modal-code" class="mono"></strong> ?<br>
+    Le compte hotspot sera d'abord retiré du MikroTik.
+  </p>
+  <div id="modal-error-msg" style="display:none;font-size:13px;color:#EF4444;margin-bottom:14px;padding:8px 12px;background:rgba(239,68,68,0.1);border-radius:6px;"></div>
+  <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
+    <button class="btn btn-ghost btn-sm" onclick="closeModal()">Annuler</button>
+    <button id="modal-force-btn" class="btn btn-sm" style="display:none;background:#F59E0B;color:#fff;border:none;" onclick="doDeleteTicketForce()">Forcer (DB uniquement)</button>
+    <button id="modal-confirm-btn" class="btn btn-sm" style="background:#EF4444;color:#fff;border:none;">Supprimer</button>
   </div>
 </div>
 
+<!-- Overlay suppression lot -->
+<div id="overlay-batch-delete" onclick="closeBatchModal()" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9000;"></div>
 <!-- Modal confirmation suppression lot -->
-<div id="modal-batch-delete" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9001;align-items:center;justify-content:center;">
-  <div class="card" style="max-width:440px;width:90%;padding:28px;margin:0 auto;">
-    <h3 style="margin:0 0 12px;font-size:16px;color:var(--text);">Supprimer le lot</h3>
-    <p style="font-size:14px;color:var(--dim);margin-bottom:20px;">
-      Supprimer le lot <strong id="modal-batch-label" class="mono"></strong> ?<br>
-      <span id="modal-batch-count" style="color:var(--amber);font-weight:600;"></span> seront retirés du MikroTik puis supprimés.
-    </p>
-    <div style="display:flex;gap:10px;justify-content:flex-end;">
-      <button class="btn btn-ghost btn-sm" onclick="closeBatchModal()">Annuler</button>
-      <button id="modal-batch-confirm-btn" class="btn btn-sm" style="background:#EF4444;color:#fff;border:none;">Supprimer le lot</button>
-    </div>
+<div id="modal-batch-delete" class="card" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9001;max-width:440px;width:90%;padding:28px;">
+  <h3 style="margin:0 0 12px;font-size:16px;color:var(--text);">Supprimer le lot</h3>
+  <p style="font-size:14px;color:var(--dim);margin-bottom:20px;">
+    Supprimer le lot <strong id="modal-batch-label" class="mono"></strong> ?<br>
+    <span id="modal-batch-count" style="color:var(--amber,#F59E0B);font-weight:600;"></span> seront retirés du MikroTik puis supprimés.
+  </p>
+  <div id="modal-batch-error-msg" style="display:none;font-size:13px;color:#EF4444;margin-bottom:14px;padding:8px 12px;background:rgba(239,68,68,0.1);border-radius:6px;"></div>
+  <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
+    <button class="btn btn-ghost btn-sm" onclick="closeBatchModal()">Annuler</button>
+    <button id="modal-batch-force-btn" class="btn btn-sm" style="display:none;background:#F59E0B;color:#fff;border:none;" onclick="doDeleteBatchForce()">Forcer (DB uniquement)</button>
+    <button id="modal-batch-confirm-btn" class="btn btn-sm" style="background:#EF4444;color:#fff;border:none;">Supprimer le lot</button>
   </div>
 </div>
+
+<!-- Toast succès -->
+<div id="toast-success" style="display:none;position:fixed;bottom:28px;right:28px;z-index:9999;background:#10B981;color:#fff;padding:14px 20px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,0.35);max-width:340px;"></div>
 {% endblock %}
 
 {% block extra_js %}
@@ -245,6 +252,15 @@
 "use strict";
 const CSRF = '{{ csrf_token }}';
 
+/* ── Toast ── */
+function showToast(msg) {
+  const t = document.getElementById('toast-success');
+  t.textContent = msg;
+  t.style.display = 'block';
+  setTimeout(() => { t.style.display = 'none'; }, 4000);
+}
+
+/* ── Resync ── */
 function resyncTicket(pk, btn) {
   btn.disabled = true;
   btn.textContent = '…';
@@ -269,78 +285,136 @@ function resyncTicket(pk, btn) {
 
 /* ── Suppression ticket ── */
 let _deletePk = null;
+
 function confirmDeleteTicket(pk, code) {
   _deletePk = pk;
   document.getElementById('modal-code').textContent = code;
-  document.getElementById('modal-delete').style.display = 'flex';
-  document.getElementById('modal-confirm-btn').onclick = doDeleteTicket;
+  document.getElementById('modal-error-msg').style.display = 'none';
+  document.getElementById('modal-force-btn').style.display = 'none';
+  const btn = document.getElementById('modal-confirm-btn');
+  btn.disabled = false;
+  btn.textContent = 'Supprimer';
+  document.getElementById('overlay-delete').style.display = 'block';
+  document.getElementById('modal-delete').style.display = 'block';
+  document.body.style.overflow = 'hidden';
 }
+
 function closeModal() {
+  document.getElementById('overlay-delete').style.display = 'none';
   document.getElementById('modal-delete').style.display = 'none';
+  document.body.style.overflow = '';
   _deletePk = null;
 }
-function doDeleteTicket() {
-  if (!_deletePk) return;
+
+document.getElementById('modal-confirm-btn').addEventListener('click', function() {
+  if (_deletePk) _performDeleteTicket(false);
+});
+
+function doDeleteTicketForce() {
+  if (_deletePk) _performDeleteTicket(true);
+}
+
+function _performDeleteTicket(force) {
+  const pk = _deletePk;
   const btn = document.getElementById('modal-confirm-btn');
+  const forceBtn = document.getElementById('modal-force-btn');
   btn.disabled = true;
   btn.textContent = '…';
-  fetch(`/wifi/tickets/hotspot/${_deletePk}/supprimer/`, {
+  forceBtn.disabled = true;
+  fetch(`/wifi/tickets/hotspot/${pk}/supprimer/`, {
     method: 'POST',
     headers: {'X-CSRFToken': CSRF, 'Content-Type': 'application/x-www-form-urlencoded'},
+    body: force ? 'force=1' : '',
   })
   .then(r => r.json())
   .then(data => {
-    closeModal();
     if (data.ok) {
-      const row = document.getElementById('row-' + _deletePk);
+      closeModal();
+      const row = document.getElementById('row-' + pk);
       if (row) row.remove();
+      showToast('Ticket supprimé avec succès');
+    } else if (data.connection_failed) {
+      btn.disabled = false;
+      btn.textContent = 'Supprimer';
+      forceBtn.disabled = false;
+      forceBtn.style.display = 'inline-flex';
+      const errDiv = document.getElementById('modal-error-msg');
+      errDiv.textContent = data.error || 'MikroTik inaccessible';
+      errDiv.style.display = 'block';
     } else {
+      closeModal();
       alert('Erreur : ' + (data.error || 'inconnue'));
     }
   })
   .catch(() => { closeModal(); alert('Erreur réseau.'); });
 }
-document.getElementById('modal-delete').addEventListener('click', function(e) {
-  if (e.target === this) closeModal();
-});
 
 /* ── Suppression lot ── */
 let _deleteBatchPk = null;
+
 function confirmDeleteBatch(pk, label, count) {
   _deleteBatchPk = pk;
   document.getElementById('modal-batch-label').textContent = label;
   document.getElementById('modal-batch-count').textContent = count + ' ticket' + (count !== 1 ? 's' : '');
-  document.getElementById('modal-batch-delete').style.display = 'flex';
-  document.getElementById('modal-batch-confirm-btn').onclick = doDeleteBatch;
+  document.getElementById('modal-batch-error-msg').style.display = 'none';
+  document.getElementById('modal-batch-force-btn').style.display = 'none';
+  const btn = document.getElementById('modal-batch-confirm-btn');
+  btn.disabled = false;
+  btn.textContent = 'Supprimer le lot';
+  document.getElementById('overlay-batch-delete').style.display = 'block';
+  document.getElementById('modal-batch-delete').style.display = 'block';
+  document.body.style.overflow = 'hidden';
 }
+
 function closeBatchModal() {
+  document.getElementById('overlay-batch-delete').style.display = 'none';
   document.getElementById('modal-batch-delete').style.display = 'none';
+  document.body.style.overflow = '';
   _deleteBatchPk = null;
 }
-function doDeleteBatch() {
-  if (!_deleteBatchPk) return;
+
+document.getElementById('modal-batch-confirm-btn').addEventListener('click', function() {
+  if (_deleteBatchPk) _performDeleteBatch(false);
+});
+
+function doDeleteBatchForce() {
+  if (_deleteBatchPk) _performDeleteBatch(true);
+}
+
+function _performDeleteBatch(force) {
+  const pk = _deleteBatchPk;
   const btn = document.getElementById('modal-batch-confirm-btn');
+  const forceBtn = document.getElementById('modal-batch-force-btn');
   btn.disabled = true;
   btn.textContent = '…';
-  fetch(`/wifi/tickets/lot/${_deleteBatchPk}/supprimer/`, {
+  forceBtn.disabled = true;
+  fetch(`/wifi/tickets/lot/${pk}/supprimer/`, {
     method: 'POST',
     headers: {'X-CSRFToken': CSRF, 'Content-Type': 'application/x-www-form-urlencoded'},
+    body: force ? 'force=1' : '',
   })
   .then(r => r.json())
   .then(data => {
-    const pk = _deleteBatchPk;
-    closeBatchModal();
     if (data.ok) {
+      closeBatchModal();
       const row = document.getElementById('batch-row-' + pk);
       if (row) row.remove();
+      const n = data.deleted || 0;
+      showToast(`Lot supprimé avec succès (${n} ticket${n !== 1 ? 's' : ''} supprimé${n !== 1 ? 's' : ''})`);
+    } else if (data.connection_failed) {
+      btn.disabled = false;
+      btn.textContent = 'Supprimer le lot';
+      forceBtn.disabled = false;
+      forceBtn.style.display = 'inline-flex';
+      const errDiv = document.getElementById('modal-batch-error-msg');
+      errDiv.textContent = data.error || 'MikroTik inaccessible';
+      errDiv.style.display = 'block';
     } else {
+      closeBatchModal();
       alert('Erreur : ' + (data.error || 'inconnue') + (data.deleted ? ` (${data.deleted} ticket(s) supprimé(s))` : ''));
     }
   })
   .catch(() => { closeBatchModal(); alert('Erreur réseau.'); });
 }
-document.getElementById('modal-batch-delete').addEventListener('click', function(e) {
-  if (e.target === this) closeBatchModal();
-});
 </script>
 {% endblock extra_js %}

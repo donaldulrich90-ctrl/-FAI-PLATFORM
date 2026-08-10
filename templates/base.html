@@ -21,6 +21,8 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   {% endblock %}
   {% block chartjs_assets %}{% endblock %}
+  <!-- Anti-flash : applique le thème sauvegardé avant le premier rendu -->
+  <script>(function(){try{if(localStorage.getItem('faso-theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})()</script>
   <style>
     /* ═══════════════════════════════════════════════════════════
        Faso ISP Manager — Thème Premium Dark
@@ -389,6 +391,151 @@
       #mob-btn { display: flex !important; }
       .btn-sm { padding: 9px 14px; }
     }
+
+    /* ═══════════════════════════════════════════════════════════
+       Thème Clair  — html[data-theme="light"]
+    ═══════════════════════════════════════════════════════════ */
+    html[data-theme="light"] {
+      --bg:      #F1F5F9;
+      --sidebar: #F8FAFC;
+      --surface: #FFFFFF;
+      --card:    #FFFFFF;
+      --card2:   #F1F5F9;
+      --border:  #E2E8F0;
+      --borderh: #10B981;
+      --text:    #0F172A;
+      --muted:   #64748B;
+      --dim:     #475569;
+    }
+
+    /* Fond + texte global */
+    html[data-theme="light"] body { background: var(--bg); color: var(--text); }
+
+    /* ── Sidebar claire ── */
+    html[data-theme="light"] .sidebar {
+      background: var(--sidebar);
+      border-right-color: var(--border);
+    }
+    html[data-theme="light"] .sidebar::before {
+      background: linear-gradient(180deg, var(--forest) 0%, rgba(4,61,43,.15) 100%);
+    }
+    html[data-theme="light"] .sidebar-logo { border-bottom-color: var(--border); }
+    html[data-theme="light"] .logo-text-main { color: #0F172A; }
+    html[data-theme="light"] .logo-text-sub  { color: rgba(15,23,42,.4); }
+    html[data-theme="light"] .nav-section    { color: rgba(201,151,44,.8); }
+    html[data-theme="light"] .nav-section::after { background: rgba(201,151,44,.2); }
+    html[data-theme="light"] .nav-link       { color: rgba(15,23,42,.55); }
+    html[data-theme="light"] .nav-link:hover { background: rgba(4,61,43,.07); color: #043D2B; }
+    html[data-theme="light"] .nav-link.active {
+      background: rgba(4,61,43,.1); color: #043D2B;
+      border-color: rgba(4,61,43,.2);
+    }
+    html[data-theme="light"] .sidebar-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,.12); }
+    html[data-theme="light"] .sidebar-user {
+      background: rgba(4,61,43,.04);
+      border-top-color: var(--border);
+    }
+    html[data-theme="light"] .user-name { color: #0F172A; }
+    html[data-theme="light"] .user-role { color: rgba(15,23,42,.4); }
+    html[data-theme="light"] .logout-btn { color: rgba(15,23,42,.25); }
+    html[data-theme="light"] .logout-btn:hover { color: var(--red); background: rgba(239,68,68,.08); }
+    html[data-theme="light"] .nav-badge { background: rgba(239,68,68,.12); }
+
+    /* ── Topbar claire ── */
+    html[data-theme="light"] .topbar {
+      background: rgba(255,255,255,.96);
+      border-bottom-color: rgba(226,232,240,.9);
+    }
+    html[data-theme="light"] .topbar-crumb { color: var(--dim); }
+    html[data-theme="light"] .topbar-crumb span { color: var(--text); }
+
+    /* ── Tables claires ── */
+    html[data-theme="light"] .tbl thead th {
+      background: rgba(0,0,0,.02);
+      color: var(--muted);
+      border-bottom-color: var(--border);
+    }
+    html[data-theme="light"] .tbl tbody tr { border-bottom-color: rgba(0,0,0,.04); }
+    html[data-theme="light"] .tbl tbody tr:nth-child(even) { background: rgba(0,0,0,.018); }
+    html[data-theme="light"] .tbl tbody tr:hover { background: rgba(4,61,43,.04); }
+    html[data-theme="light"] .tbl tbody td { color: var(--text); }
+
+    /* ── Formulaires clairs ── */
+    html[data-theme="light"] input[type=text],
+    html[data-theme="light"] input[type=password],
+    html[data-theme="light"] input[type=number],
+    html[data-theme="light"] select {
+      background: #FFFFFF !important;
+      border-color: var(--border) !important;
+      color: var(--text) !important;
+    }
+    html[data-theme="light"] select option { background: #FFFFFF; color: #0F172A; }
+    html[data-theme="light"] .field input,
+    html[data-theme="light"] .field select,
+    html[data-theme="light"] .field textarea {
+      background: #FFFFFF; border-color: var(--border); color: var(--text);
+    }
+    html[data-theme="light"] .field label { color: var(--muted); }
+
+    /* ── Badges clairs ── */
+    html[data-theme="light"] .badge-slate {
+      background: rgba(0,0,0,.05);
+      color: var(--dim);
+      border-color: rgba(0,0,0,.08);
+    }
+
+    /* ── Cards claires ── */
+    html[data-theme="light"] .card:hover { box-shadow: 0 8px 32px rgba(0,0,0,.09); }
+    html[data-theme="light"] .stat-card:hover { box-shadow: 0 12px 36px rgba(0,0,0,.12); }
+
+    /* ── Alerts claires ── */
+    html[data-theme="light"] .alert-info    { background: rgba(201,151,44,.07); }
+    html[data-theme="light"] .alert-success { background: rgba(16,185,129,.07); }
+    html[data-theme="light"] .alert-error   { background: rgba(239,68,68,.07);  }
+    html[data-theme="light"] .alert-warn    { background: rgba(245,158,11,.07); }
+
+    /* ── Toasts clairs ── */
+    html[data-theme="light"] .toast {
+      background: #FFFFFF;
+      border-color: var(--border);
+      box-shadow: 0 8px 32px rgba(0,0,0,.14);
+    }
+
+    /* ── Skeleton clair ── */
+    html[data-theme="light"] .skeleton {
+      background: linear-gradient(90deg, rgba(0,0,0,.04) 25%, rgba(0,0,0,.08) 50%, rgba(0,0,0,.04) 75%);
+      background-size: 200% 100%;
+    }
+
+    /* ── Scrollbar claire ── */
+    html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,.1); }
+    html[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(4,61,43,.2); }
+
+    /* ── Overlay mobile clair ── */
+    html[data-theme="light"] #overlay { background: rgba(0,0,0,.45); }
+
+    /* ── Bouton toggle thème ── */
+    #theme-toggle {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      color: var(--dim);
+      padding: 5px 9px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      transition: all .18s;
+      line-height: 1;
+    }
+    #theme-toggle:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+      background: rgba(201,151,44,.06);
+    }
   </style>
   {% block extra_head %}{% endblock %}
 </head>
@@ -540,9 +687,24 @@
         <span>{% block breadcrumb %}Tableau de bord{% endblock %}</span>
       </div>
     </div>
-    <div class="online-badge">
-      <div class="pulse"></div>
-      En ligne
+    <div style="display:flex;align-items:center;gap:10px;">
+      <!-- Bouton thème dark/light -->
+      <button id="theme-toggle" onclick="toggleTheme()" title="Basculer thème clair/sombre" aria-label="Changer le thème">
+        <!-- Icône lune (visible en mode sombre → cliquer pour passer en clair) -->
+        <svg id="icon-moon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+        </svg>
+        <!-- Icône soleil (visible en mode clair → cliquer pour passer en sombre) -->
+        <svg id="icon-sun" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none;">
+          <circle cx="12" cy="12" r="5"/><path stroke-linecap="round" d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+        </svg>
+        <span id="theme-label" style="font-size:11px;">Clair</span>
+      </button>
+
+      <div class="online-badge">
+        <div class="pulse"></div>
+        En ligne
+      </div>
     </div>
   </div>
   {% endif %}
@@ -580,6 +742,33 @@
       if (p !== '/' && window.location.pathname.startsWith(p)) el.classList.add('active');
     } catch(e) {}
   });
+
+  // ── Thème dark / light ─────────────────────────────────────────────────────
+  function _applyThemeUI(theme) {
+    const isLight = theme === 'light';
+    document.getElementById('icon-moon') && (document.getElementById('icon-moon').style.display = isLight ? 'none' : 'block');
+    document.getElementById('icon-sun')  && (document.getElementById('icon-sun').style.display  = isLight ? 'block' : 'none');
+    const lbl = document.getElementById('theme-label');
+    if (lbl) lbl.textContent = isLight ? 'Sombre' : 'Clair';
+  }
+
+  function toggleTheme() {
+    const curr = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = curr === 'dark' ? 'light' : 'dark';
+    if (next === 'light') {
+      document.documentElement.setAttribute('data-theme', 'light');
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+    try { localStorage.setItem('faso-theme', next); } catch(e) {}
+    _applyThemeUI(next);
+  }
+
+  // Sync UI icons with stored preference on page load
+  (function() {
+    const stored = (function(){ try{ return localStorage.getItem('faso-theme'); } catch(e){ return null; } })();
+    _applyThemeUI(stored === 'light' ? 'light' : 'dark');
+  })();
 
   // Toast system
   function showToast(message, type='info', duration=4000) {
