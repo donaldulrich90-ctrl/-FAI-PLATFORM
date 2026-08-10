@@ -21,8 +21,60 @@
   <span style="font-size:13px;color:var(--muted);">{{ total }} ticket{{ total|pluralize }}</span>
 </div>
 
-<!-- Filtres -->
-<form method="get" class="card anim-up-1" style="padding:14px 18px;margin-bottom:18px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;">
+<!-- Lots de tickets -->
+<div class="card anim-up-1" style="overflow:hidden;padding:0;margin-bottom:18px;">
+  <div class="section-head" style="padding:14px 18px 0;display:flex;align-items:center;justify-content:space-between;">
+    <h2 style="font-size:15px;margin:0;">Lots de tickets</h2>
+    <span class="badge badge-slate" style="font-size:11px;">{{ batches|length }} lot{{ batches|length|pluralize }}</span>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Libellé</th>
+          <th>Site</th>
+          <th>Durée</th>
+          <th style="text-align:right;">Tickets</th>
+          <th>Créé le</th>
+          <th style="text-align:center;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in batches %}
+        <tr id="batch-row-{{ b.pk }}">
+          <td style="font-weight:600;color:var(--text);">{{ b.label|default:b }}</td>
+          <td style="font-size:13px;color:var(--dim);">{{ b.site.name }}</td>
+          <td><span class="badge badge-slate" style="font-size:11px;">{{ b.get_duration_display }}</span></td>
+          <td style="text-align:right;" class="mono">{{ b.ticket_count }}</td>
+          <td style="font-size:12px;color:var(--muted);">{{ b.created_at|date:"d/m/Y H:i" }}</td>
+          <td style="text-align:center;white-space:nowrap;">
+            <a href="{% url 'wifi_zone:revendeur_print' b.pk %}" class="btn btn-ghost btn-sm" style="padding:4px 10px;margin-right:4px;">
+              Imprimer
+            </a>
+            <a href="{% url 'wifi_zone:print_batch_pdf' b.pk %}" class="btn btn-ghost btn-sm" style="padding:4px 10px;margin-right:4px;">
+              PDF
+            </a>
+            <button class="btn btn-ghost btn-sm"
+                    style="padding:4px 10px;color:var(--red,#EF4444);"
+                    title="Supprimer ce lot et tous ses tickets"
+                    onclick="confirmDeleteBatch({{ b.pk }}, '{{ b.label|default:b|escapejs }}', {{ b.ticket_count }})">
+              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              Supprimer le lot
+            </button>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="6" style="text-align:center;padding:24px;color:var(--muted);">Aucun lot.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Filtres tickets -->
+<form method="get" class="card anim-up-2" style="padding:14px 18px;margin-bottom:18px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;">
   <input name="q" value="{{ q }}" placeholder="Rechercher par code…" style="flex:1;min-width:160px;max-width:240px;">
   <select name="site" style="width:auto!important;min-width:150px;">
     <option value="">Tous les sites</option>
@@ -48,8 +100,8 @@
   {% endif %}
 </form>
 
-<!-- Tableau -->
-<div class="card anim-up-2" style="overflow:hidden;padding:0;">
+<!-- Tableau tickets -->
+<div class="card anim-up-3" style="overflow:hidden;padding:0;">
   <div style="overflow-x:auto;">
     <table class="tbl">
       <thead>
@@ -157,7 +209,7 @@
   </div>
 </div>
 
-<!-- Modal confirmation suppression -->
+<!-- Modal confirmation suppression ticket -->
 <div id="modal-delete" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;align-items:center;justify-content:center;">
   <div class="card" style="max-width:420px;width:90%;padding:28px;margin:0 auto;">
     <h3 style="margin:0 0 12px;font-size:16px;color:var(--text);">Confirmer la suppression</h3>
@@ -168,6 +220,21 @@
     <div style="display:flex;gap:10px;justify-content:flex-end;">
       <button class="btn btn-ghost btn-sm" onclick="closeModal()">Annuler</button>
       <button id="modal-confirm-btn" class="btn btn-sm" style="background:#EF4444;color:#fff;border:none;">Supprimer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal confirmation suppression lot -->
+<div id="modal-batch-delete" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9001;align-items:center;justify-content:center;">
+  <div class="card" style="max-width:440px;width:90%;padding:28px;margin:0 auto;">
+    <h3 style="margin:0 0 12px;font-size:16px;color:var(--text);">Supprimer le lot</h3>
+    <p style="font-size:14px;color:var(--dim);margin-bottom:20px;">
+      Supprimer le lot <strong id="modal-batch-label" class="mono"></strong> ?<br>
+      <span id="modal-batch-count" style="color:var(--amber);font-weight:600;"></span> seront retirés du MikroTik puis supprimés.
+    </p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn btn-ghost btn-sm" onclick="closeBatchModal()">Annuler</button>
+      <button id="modal-batch-confirm-btn" class="btn btn-sm" style="background:#EF4444;color:#fff;border:none;">Supprimer le lot</button>
     </div>
   </div>
 </div>
@@ -200,6 +267,7 @@ function resyncTicket(pk, btn) {
   .catch(() => { btn.textContent = 'Erreur réseau'; btn.disabled = false; });
 }
 
+/* ── Suppression ticket ── */
 let _deletePk = null;
 function confirmDeleteTicket(pk, code) {
   _deletePk = pk;
@@ -234,6 +302,45 @@ function doDeleteTicket() {
 }
 document.getElementById('modal-delete').addEventListener('click', function(e) {
   if (e.target === this) closeModal();
+});
+
+/* ── Suppression lot ── */
+let _deleteBatchPk = null;
+function confirmDeleteBatch(pk, label, count) {
+  _deleteBatchPk = pk;
+  document.getElementById('modal-batch-label').textContent = label;
+  document.getElementById('modal-batch-count').textContent = count + ' ticket' + (count !== 1 ? 's' : '');
+  document.getElementById('modal-batch-delete').style.display = 'flex';
+  document.getElementById('modal-batch-confirm-btn').onclick = doDeleteBatch;
+}
+function closeBatchModal() {
+  document.getElementById('modal-batch-delete').style.display = 'none';
+  _deleteBatchPk = null;
+}
+function doDeleteBatch() {
+  if (!_deleteBatchPk) return;
+  const btn = document.getElementById('modal-batch-confirm-btn');
+  btn.disabled = true;
+  btn.textContent = '…';
+  fetch(`/wifi/tickets/lot/${_deleteBatchPk}/supprimer/`, {
+    method: 'POST',
+    headers: {'X-CSRFToken': CSRF, 'Content-Type': 'application/x-www-form-urlencoded'},
+  })
+  .then(r => r.json())
+  .then(data => {
+    const pk = _deleteBatchPk;
+    closeBatchModal();
+    if (data.ok) {
+      const row = document.getElementById('batch-row-' + pk);
+      if (row) row.remove();
+    } else {
+      alert('Erreur : ' + (data.error || 'inconnue') + (data.deleted ? ` (${data.deleted} ticket(s) supprimé(s))` : ''));
+    }
+  })
+  .catch(() => { closeBatchModal(); alert('Erreur réseau.'); });
+}
+document.getElementById('modal-batch-delete').addEventListener('click', function(e) {
+  if (e.target === this) closeBatchModal();
 });
 </script>
 {% endblock extra_js %}

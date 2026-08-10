@@ -1248,15 +1248,18 @@ def tickets_imprime_list(request: HttpRequest) -> HttpResponse:
             ),
         })
 
-    batches = WifiTicketBatch.objects.order_by("-created_at")[:50]
+    batches_qs = WifiTicketBatch.objects.select_related("site", "created_by").annotate(
+        ticket_count=Count("ticket")
+    ).order_by("-created_at")
     if not user_sees_all_tenants(request.user):
         tid = getattr(request.user, "tenant_id", None)
-        batches = batches.filter(site__tenant_id=tid) if tid else batches.none()
+        batches_qs = batches_qs.filter(site__tenant_id=tid) if tid else batches_qs.none()
+    batches = list(batches_qs[:50])
 
     context = {
         "enriched": enriched,
         "sites": sites,
-        "batches": list(batches),
+        "batches": batches,
         "site_filter": site_filter,
         "batch_filter": batch_filter,
         "status_filter": status_filter,
