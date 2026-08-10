@@ -1249,7 +1249,7 @@ def tickets_imprime_list(request: HttpRequest) -> HttpResponse:
         })
 
     batches_qs = WifiTicketBatch.objects.select_related("site", "created_by").annotate(
-        ticket_count=Count("ticket")
+        ticket_count=Count("tickets")
     ).order_by("-created_at")
     if not user_sees_all_tenants(request.user):
         tid = getattr(request.user, "tenant_id", None)
