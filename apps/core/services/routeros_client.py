@@ -151,6 +151,19 @@ class RouterOSClient:
     def _api(self, path: str, **kwargs) -> list[dict]:
         return list(self._conn(path, **kwargs))
 
+    def _api_query(self, path: str, **filters) -> list[dict]:
+        """
+        Filtered RouterOS /print via rawCmd.
+        Envoie des query words correctement formatés (?=key=value)
+        au lieu de compose_word qui produit =?key=value (rejeté par RouterOS).
+        Doit être appelé uniquement en mode 'api'.
+        """
+        if self._mode != "api":
+            raise RouterOSError(f"_api_query appelé hors mode API (mode={self._mode})")
+        from librouteros.protocol import cast_to_api
+        words = [f"?={k}={cast_to_api(v)}" for k, v in filters.items()]
+        return list(self._conn.rawCmd(path, *words))
+
     def _ssh_exec(self, command: str) -> tuple[int, str, str]:
         stdin, stdout, stderr = self._conn.exec_command(command)
         out = stdout.read().decode("utf-8", errors="replace")
@@ -219,7 +232,7 @@ class RouterOSClient:
 
         if self._mode == "api":
             try:
-                rows = self._api("/ip/hotspot/user/print", **{"?name": name})
+                rows = self._api_query("/ip/hotspot/user/print", name=name)
                 for row in rows:
                     self._api("/ip/hotspot/user/remove", **{".id": row[".id"]})
                 return True
@@ -343,7 +356,7 @@ class RouterOSClient:
             return True
         if self._mode == "api":
             try:
-                rows = self._api("/ip/hotspot/user/print", **{"?name": name})
+                rows = self._api_query("/ip/hotspot/user/print", name=name)
                 for row in rows:
                     self._api("/ip/hotspot/user/reset-counters", **{".id": row[".id"]})
                 return True
@@ -458,11 +471,11 @@ class RouterOSClient:
             try:
                 existing = None
                 if safe_mac:
-                    rows = self._api("/ip/hotspot/ip-binding/print", **{"?mac-address": safe_mac})
+                    rows = self._api_query("/ip/hotspot/ip-binding/print", **{"mac-address": safe_mac})
                     if rows:
                         existing = rows[0]
                 elif safe_addr:
-                    rows = self._api("/ip/hotspot/ip-binding/print", **{"?address": safe_addr})
+                    rows = self._api_query("/ip/hotspot/ip-binding/print", address=safe_addr)
                     if rows:
                         existing = rows[0]
 
@@ -529,7 +542,7 @@ class RouterOSClient:
             return True
         if self._mode == "api":
             try:
-                rows = self._api("/ip/hotspot/ip-binding/print", **{"?comment": comment})
+                rows = self._api_query("/ip/hotspot/ip-binding/print", comment=comment)
                 for row in rows:
                     self._api("/ip/hotspot/ip-binding/remove", **{".id": row[".id"]})
                 return True
@@ -572,8 +585,7 @@ class RouterOSClient:
             return True
         if self._mode == "api":
             try:
-                kwargs: dict = {"?comment": comment}
-                rows = self._api("/ip/firewall/address-list/print", **kwargs)
+                rows = self._api_query("/ip/firewall/address-list/print", comment=comment)
                 if list_name:
                     rows = [r for r in rows if r.get("list") == list_name]
                 for row in rows:
@@ -614,7 +626,7 @@ class RouterOSClient:
             return True
         if self._mode == "api":
             try:
-                rows = self._api("/ip/arp/print", **{"?comment": comment})
+                rows = self._api_query("/ip/arp/print", comment=comment)
                 for row in rows:
                     self._api("/ip/arp/remove", **{".id": row[".id"]})
                 return True
@@ -663,7 +675,7 @@ class RouterOSClient:
             return True
         if self._mode == "api":
             try:
-                rows = self._api("/queue/simple/print", **{"?name": name})
+                rows = self._api_query("/queue/simple/print", name=name)
                 for row in rows:
                     self._api("/queue/simple/remove", **{".id": row[".id"]})
                 return True
@@ -682,7 +694,7 @@ class RouterOSClient:
 
         if self._mode == "api":
             try:
-                rows = self._api("/interface/bridge/filter/print", **{"?comment": comment})
+                rows = self._api_query("/interface/bridge/filter/print", comment=comment)
                 for row in rows:
                     self._api("/interface/bridge/filter/remove", **{".id": row[".id"]})
                 return True
