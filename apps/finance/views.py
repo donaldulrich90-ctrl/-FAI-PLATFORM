@@ -196,23 +196,85 @@ def caisse_export_csv(request: HttpRequest) -> HttpResponse:
     if not (user_sees_all_tenants(user) or getattr(user, "is_admin_role", False)):
         raise PermissionDenied
 
+    sees_all = user_sees_all_tenants(user)
+    tid = None if sees_all else getattr(user, "tenant_id", None)
+
     qs = CashJournalEntry.objects.select_related("site", "created_by").order_by(
         "-entry_date", "-created_at"
     )
-    if not user_sees_all_tenants(user):
-        tid = getattr(user, "tenant_id", None)
+    if not sees_all:
         qs = qs.filter(tenant_id=tid) if tid else qs.none()
 
+    date_from: datetime.date | None = None
+    date_to: datetime.date | None = None
     for param, lookup in [("date_from", "gte"), ("date_to", "lte")]:
         raw = request.GET.get(param)
         if raw:
             try:
-                qs = qs.filter(**{f"entry_date__{lookup}": datetime.date.fromisoformat(raw)})
+                d = datetime.date.fromisoformat(raw)
+                if lookup == "gte":
+                    date_from = d
+                    qs = qs.filter(entry_date__gte=d)
+                else:
+                    date_to = d
+                    qs = qs.filter(entry_date__lte=d)
             except ValueError:
                 pass
 
+    # ── WiFi Zone — lots de tickets ──
+    from apps.wifi_zone.models import WifiTicketBatch
+    batches_qs = (
+        WifiTicketBatch.objects
+        .select_related("site", "created_by")
+        .annotate(net_total=Sum("tickets__net_to_isp_xof"))
+        .order_by("-created_at")
+    )
+    if not sees_all:
+        batches_qs = batches_qs.filter(site__tenant_id=tid) if tid else batches_qs.none()
+    if date_from:
+        batches_qs = batches_qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        batches_qs = batches_qs.filter(created_at__date__lte=date_to)
+
+    types = {"income": "Entrée", "expense": "Dépense"}
+    all_rows: list[tuple] = []
+
+    for e in qs:
+        all_rows.append((
+            e.entry_date,
+            [
+                e.entry_date.strftime("%d/%m/%Y"),
+                types.get(e.entry_type, e.entry_type),
+                e.category or "",
+                e.description,
+                int(e.amount_xof),
+                e.site.name if e.site else "",
+                (e.created_by.get_full_name() or e.created_by.username) if e.created_by else "",
+                e.created_at.strftime("%d/%m/%Y %H:%M"),
+            ],
+        ))
+
+    for b in batches_qs:
+        d = timezone.localtime(b.created_at)
+        all_rows.append((
+            d.date(),
+            [
+                d.strftime("%d/%m/%Y"),
+                "Entrée",
+                "WiFi Zone – Lots de tickets",
+                b.label or f"Lot #{b.pk}",
+                int(b.net_total or 0),
+                b.site.name if b.site else "",
+                (b.created_by.get_full_name() or b.created_by.username) if b.created_by else "",
+                d.strftime("%d/%m/%Y %H:%M"),
+            ],
+        ))
+
+    all_rows.sort(key=lambda x: x[0], reverse=True)
+    rows = [r[1] for r in all_rows]
+
     from .exports import build_caisse_journal_csv
-    content  = build_caisse_journal_csv(qs)
+    content  = build_caisse_journal_csv(rows)
     today    = timezone.localdate().strftime("%Y%m%d")
     response = HttpResponse(content, content_type="text/csv; charset=utf-8-sig")
     response["Content-Disposition"] = f'attachment; filename="journal_caisse_{today}.csv"'
@@ -244,6 +306,16 @@ def finance_dashboard(request: HttpRequest) -> HttpResponse:
     for e in entries_qs.values("entry_date", "amount_xof"):
         k = str(e["entry_date"])
         daily[k] = daily.get(k, 0) + int(e["amount_xof"] or 0)
+
+    # ── revenus WiFi Zone (tickets vendus par lots, 30 derniers jours) ──
+    from apps.wifi_zone.models import Ticket, WiFiSimpleSubscriber
+    wifi_30_qs = Ticket.objects.filter(batch__isnull=False, created_at__date__gte=start_30)
+    if tid:
+        wifi_30_qs = wifi_30_qs.filter(site__tenant_id=tid)
+    for row in wifi_30_qs.values("created_at__date").annotate(day_total=Sum("net_to_isp_xof")):
+        k = str(row["created_at__date"])
+        daily[k] = daily.get(k, 0) + int(row["day_total"] or 0)
+
     chart_labels = [(start_30 + datetime.timedelta(days=i)).isoformat() for i in range(30)]
     chart_data = [daily.get(d, 0) for d in chart_labels]
 
@@ -251,7 +323,6 @@ def finance_dashboard(request: HttpRequest) -> HttpResponse:
     revenue_today = daily.get(str(today), 0)
 
     # ── abonnés expirant dans 7 jours ──
-    from apps.wifi_zone.models import WiFiSimpleSubscriber
     now = timezone.now()
     expiring_qs = WiFiSimpleSubscriber.objects.filter(
         expires_at__gte=now,
@@ -269,17 +340,20 @@ def finance_dashboard(request: HttpRequest) -> HttpResponse:
     suspendus = sub_qs.filter(status=WiFiSimpleSubscriber.Status.SUSPENDU).count()
     expires = sub_qs.filter(status=WiFiSimpleSubscriber.Status.EXPIRE).count()
 
-    # ── top clients (revenus mois en cours) ──
+    # ── total mensuel (CashJournalEntry income + WiFi Zone tickets) ──
     month_start = today.replace(day=1)
-    top_entries = (
-        CashJournalEntry.objects.filter(
-            entry_type=CashJournalEntry.EntryType.INCOME,
-            entry_date__gte=month_start,
-        )
+    top_entries = CashJournalEntry.objects.filter(
+        entry_type=CashJournalEntry.EntryType.INCOME,
+        entry_date__gte=month_start,
     )
     if tid:
         top_entries = top_entries.filter(tenant_id=tid)
     monthly_total = top_entries.aggregate(t=Sum("amount_xof"))["t"] or Decimal("0")
+
+    wifi_month_qs = Ticket.objects.filter(batch__isnull=False, created_at__date__gte=month_start)
+    if tid:
+        wifi_month_qs = wifi_month_qs.filter(site__tenant_id=tid)
+    monthly_total += wifi_month_qs.aggregate(t=Sum("net_to_isp_xof"))["t"] or Decimal("0")
 
     context = {
         "chart_labels": json.dumps(chart_labels),

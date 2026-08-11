@@ -162,25 +162,17 @@ def build_revendeur_report_detail_excel(report) -> bytes:
 
 # ── Export 3 : journal de caisse ────────────────────────────────────────────
 
-def build_caisse_journal_csv(qs) -> str:
-    """CSV du journal de caisse (CashJournalEntry) — séparateur ; pour Excel FR."""
+def build_caisse_journal_csv(rows: list[list]) -> str:
+    """CSV du journal de caisse — séparateur ; pour Excel FR.
+
+    rows : liste de lignes pré-normalisées [Date, Type, Catégorie, Description,
+           Montant(XOF), Site, Créé par, Date saisie], déjà triées par le
+           appelant.
+    """
     output = io.StringIO()
     writer = csv.writer(output, delimiter=";")
-
     writer.writerow(["Date", "Type", "Catégorie", "Description",
                      "Montant (XOF)", "Site", "Créé par", "Date saisie"])
-
-    types = {"income": "Entrée", "expense": "Dépense"}
-    for e in qs:
-        writer.writerow([
-            e.entry_date.strftime("%d/%m/%Y"),
-            types.get(e.entry_type, e.entry_type),
-            e.category or "",
-            e.description,
-            int(e.amount_xof),
-            e.site.name if e.site else "",
-            (e.created_by.get_full_name() or e.created_by.username) if e.created_by else "",
-            e.created_at.strftime("%d/%m/%Y %H:%M"),
-        ])
-
+    for row in rows:
+        writer.writerow(row)
     return "﻿" + output.getvalue()  # BOM UTF-8 pour Excel Windows
