@@ -10,6 +10,14 @@ import string
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+# Libellés courts pour les durées de ticket
+_DURATION_SHORT: dict[str, str] = {
+    "3h": "3h",
+    "1d": "24h",
+    "1w": "7j",
+    "30j": "30j",
+}
+
 from django.db import transaction
 
 if TYPE_CHECKING:
@@ -92,8 +100,19 @@ class WifiAccessCodeService:
         if not prefix:
             raise ValueError("Le revendeur doit avoir un préfixe de ticket configuré.")
 
+        # Numéro de tirage = nombre de lots existants pour ce revendeur + cette durée + 1
+        tirage = WifiTicketBatch.objects.filter(
+            created_by=seller,
+            duration=duration,
+        ).count() + 1
+        seller_name = (seller.get_full_name() or seller.username).upper()
+        dur_short = _DURATION_SHORT.get(duration, duration)
+        total_xof = int(Decimal(str(unit_price_xof)) * quantity)
+        total_fmt = f"{total_xof:,}".replace(",", " ")  # espace fine insécable
+        batch_label = f"{seller_name} — {dur_short} — {total_fmt} XOF — Tirage n°{tirage}"
+
         batch = WifiTicketBatch.objects.create(
-            label=f"Lot revendeur {prefix} — {quantity} tickets",
+            label=batch_label,
             site=site,
             duration=duration,
             unit_price_xof=unit_price_xof,

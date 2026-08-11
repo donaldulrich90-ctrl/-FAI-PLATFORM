@@ -114,7 +114,7 @@
       <tbody>
         {% for batch in recent_batches %}
         <tr>
-          <td style="font-weight:600;color:var(--text);">{{ batch.label|truncatechars:30 }}</td>
+          <td style="font-weight:600;color:var(--text);" title="{{ batch.label }}">{{ batch.label|truncatechars:55 }}</td>
           <td style="color:var(--dim);">{{ batch.site.name }}</td>
           <td><span class="badge badge-slate">{{ batch.get_duration_display }}</span></td>
           <td style="text-align:right;" class="mono">{{ batch.quantity }}</td>
