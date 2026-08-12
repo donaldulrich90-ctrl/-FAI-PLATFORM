@@ -12,10 +12,14 @@ from typing import TYPE_CHECKING
 
 # Libellés courts pour les durées de ticket
 _DURATION_SHORT: dict[str, str] = {
+    "2h": "2h",
     "3h": "3h",
+    "4h": "4h",
     "1d": "24h",
+    "5j": "5j",
     "1w": "7j",
     "30j": "30j",
+    "illimite": "illim.",
 }
 
 from django.db import transaction

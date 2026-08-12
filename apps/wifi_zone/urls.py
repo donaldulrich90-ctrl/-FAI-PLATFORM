@@ -35,6 +35,11 @@ urlpatterns = [
     path("tickets/lot/<int:batch_pk>/supprimer/", views.ticket_batch_delete, name="ticket_batch_delete"),
     # Re-synchronisation ticket
     path("tickets/hotspot/<int:pk>/resync/", views.ticket_resync, name="ticket_resync"),
+    # Push manuel vers MikroTik
+    path("tickets/hotspot/<int:pk>/push/", views.ticket_push, name="ticket_push"),
+    path("tickets/lot/<int:batch_pk>/push/", views.ticket_batch_push, name="ticket_batch_push"),
+    path("tickets/hotspot/push-all/", views.ticket_push_all_unsynced, name="ticket_push_all_unsynced"),
+    path("tickets/hotspot/<int:pk>/sync-mac/", views.ticket_sync_mac, name="ticket_sync_mac"),
     # Dashboard WiFi Zones (admin uniquement)
     path("zones/", views.zones_dashboard, name="zones_dashboard"),
     path("zones/<int:revendeur_id>/", views.zone_detail_report, name="zone_detail_report"),

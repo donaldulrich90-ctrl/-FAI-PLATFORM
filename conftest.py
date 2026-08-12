@@ -33,7 +33,7 @@ def pytest_configure():
         MIKROTIK_HOTSPOT_DEFAULT_PROFILE="",
         MIKROTIK_HOTSPOT_PROFILE_3H="Profil-2H",
         MIKROTIK_HOTSPOT_PROFILE_1D="Profil-24H",
-        MIKROTIK_HOTSPOT_PROFILE_1W="7j",
+        MIKROTIK_HOTSPOT_PROFILE_5J="5j",
         MIKROTIK_HOTSPOT_PROFILE_30J="Profil-30Jours",
         ENCRYPTION_KEY="",
         SECRET_KEY="test-secret-key-not-for-production",

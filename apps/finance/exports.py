@@ -98,7 +98,7 @@ def build_revendeur_reports_excel(qs) -> bytes:
 
 # ── Export 2 : rapport revendeur détaillé ───────────────────────────────────
 
-_DURATIONS = {"3h": "3 heures", "1d": "24 heures", "1w": "7 jours", "30j": "30 jours"}
+_DURATIONS = {"3h": "3 heures", "1d": "24 heures", "5j": "5 jours", "30j": "30 jours"}
 _STATUSES  = {"available": "Disponible", "used": "Utilisé", "expired": "Expiré"}
 
 

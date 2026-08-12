@@ -21,8 +21,10 @@ from apps.wifi_zone.models import WifiTicketBatch
 _DURATION_SHORT: dict[str, str] = {
     "3h": "3h",
     "1d": "24h",
+    "5j": "5j",
     "1w": "7j",
     "30j": "30j",
+    "illimite": "illim.",
 }
 
 

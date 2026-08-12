@@ -40,7 +40,7 @@ COLOR_VLIGHT  = colors.HexColor("#eeeeee")
 DURATION_LABELS = {
     "3h":  "3 Heures",
     "1d":  "24 Heures",
-    "1w":  "7 Jours",
+    "5j":  "5 Jours",
     "30j": "30 Jours",
 }
 

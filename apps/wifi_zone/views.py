@@ -261,8 +261,10 @@ def revendeur_generate_batch(request: HttpRequest) -> HttpResponse:
     DURATION_CHOICES = [
         ("3h", "3 Heures"),
         ("1d", "24 Heures"),
+        ("5j", "5 Jours"),
         ("1w", "7 Jours"),
         ("30j", "30 Jours"),
+        ("illimite", "Illimité"),
     ]
     MAX_QUANTITY = 100
     QUANTITY_CHOICES = [5, 10, 20, 50, 100]
@@ -376,7 +378,7 @@ def revendeur_print(request: HttpRequest, batch_pk: int) -> HttpResponse:
             "last_num": i + len(chunk),
         })
 
-    DURATION_LABELS = {"3h": "3 Heures", "1d": "24 Heures", "1w": "7 Jours", "30j": "30 Jours"}
+    DURATION_LABELS = {"3h": "3 Heures", "1d": "24 Heures", "5j": "5 Jours", "1w": "7 Jours", "30j": "30 Jours", "illimite": "Illimité"}
     context = {
         "batch": batch,
         "tickets": ticket_list,
@@ -713,7 +715,7 @@ def _reply_whatsapp_ticket(ticket):
 
 # ── 8. DASHBOARD WIFI ZONES ──────────────────────────────────────────────────
 
-_DURATION_LABELS = {"3h": "3 Heures", "1d": "24 Heures", "1w": "7 Jours", "30j": "30 Jours"}
+_DURATION_LABELS = {"3h": "3 Heures", "1d": "24 Heures", "5j": "5 Jours", "1w": "7 Jours", "30j": "30 Jours", "illimite": "Illimité"}
 
 
 def _get_revendeurs_qs(user):
@@ -1246,6 +1248,8 @@ def tickets_imprime_list(request: HttpRequest) -> HttpResponse:
                 else ("error" if t.hotspot_sync_error
                       else "pending")
             ),
+            "mac_address": t.mac_address or "",
+            "first_used_at": t.first_used_at,
         })
 
     batches_qs = WifiTicketBatch.objects.select_related("site", "created_by").annotate(
@@ -1255,6 +1259,11 @@ def tickets_imprime_list(request: HttpRequest) -> HttpResponse:
         tid = getattr(request.user, "tenant_id", None)
         batches_qs = batches_qs.filter(site__tenant_id=tid) if tid else batches_qs.none()
     batches = list(batches_qs[:50])
+
+    nb_unsynced_qs = Ticket.objects.filter(hotspot_synced_at__isnull=True)
+    if not user_sees_all_tenants(request.user):
+        tid = getattr(request.user, "tenant_id", None)
+        nb_unsynced_qs = nb_unsynced_qs.filter(site__tenant_id=tid) if tid else nb_unsynced_qs.none()
 
     context = {
         "enriched": enriched,
@@ -1266,6 +1275,7 @@ def tickets_imprime_list(request: HttpRequest) -> HttpResponse:
         "q": q,
         "status_choices": Ticket.Status.choices,
         "total": len(enriched),
+        "nb_unsynced": nb_unsynced_qs.count(),
     }
     return render(request, "wifi_zone/tickets_imprime_list.html", context)
 
@@ -1431,6 +1441,127 @@ def ticket_resync(request: HttpRequest, pk: int) -> JsonResponse:
             hotspot_sync_error=err[:512],
         )
         return JsonResponse({"ok": False, "error": err})
+
+
+# ── 13. PUSH MANUEL TICKET ────────────────────────────────────────────────────
+
+@login_required
+@require_POST
+def ticket_push(request: HttpRequest, pk: int) -> JsonResponse:
+    """Pousse un ticket unique sur MikroTik (identique à resync, alias explicite)."""
+    _ensure_admin_or_tech(request.user)
+
+    qs = Ticket.objects.select_related("site")
+    if not user_sees_all_tenants(request.user):
+        tid = getattr(request.user, "tenant_id", None)
+        qs = qs.filter(site__tenant_id=tid) if tid else qs.none()
+
+    ticket = get_object_or_404(qs, pk=pk)
+
+    from .router_control import provision_wifi_zone_hotspot_for_ticket
+
+    ok, err = provision_wifi_zone_hotspot_for_ticket(
+        ticket,
+        performed_by=request.user,
+        ip_address=request.META.get("REMOTE_ADDR"),
+    )
+    now = timezone.now()
+    if ok:
+        Ticket.objects.filter(pk=ticket.pk).update(hotspot_synced_at=now, hotspot_sync_error="")
+        return JsonResponse({"ok": True, "synced_at": now.strftime("%d/%m/%Y %H:%M")})
+    Ticket.objects.filter(pk=ticket.pk).update(hotspot_synced_at=None, hotspot_sync_error=err[:512])
+    return JsonResponse({"ok": False, "error": err})
+
+
+@login_required
+@require_POST
+def ticket_batch_push(request: HttpRequest, batch_pk: int) -> JsonResponse:
+    """Pousse tous les tickets d'un lot sur MikroTik (une seule connexion RouterOS)."""
+    _ensure_admin_or_tech(request.user)
+
+    qs = WifiTicketBatch.objects.select_related("site")
+    if not user_sees_all_tenants(request.user):
+        tid = getattr(request.user, "tenant_id", None)
+        qs = qs.filter(site__tenant_id=tid) if tid else qs.none()
+
+    batch = get_object_or_404(qs, pk=batch_pk)
+
+    from .router_control import provision_wifi_zone_hotspot_for_batch
+
+    ok_count, errors = provision_wifi_zone_hotspot_for_batch(
+        batch,
+        performed_by=request.user,
+        ip_address=request.META.get("REMOTE_ADDR"),
+    )
+    return JsonResponse({"ok": True, "pushed": ok_count, "errors": errors})
+
+
+@login_required
+@require_POST
+def ticket_push_all_unsynced(request: HttpRequest) -> JsonResponse:
+    """Pousse tous les tickets non-synchronisés, groupés par équipement MikroTik."""
+    _ensure_admin_or_tech(request.user)
+
+    qs = Ticket.objects.select_related("site").filter(hotspot_synced_at__isnull=True)
+    if not user_sees_all_tenants(request.user):
+        tid = getattr(request.user, "tenant_id", None)
+        qs = qs.filter(site__tenant_id=tid) if tid else qs.none()
+
+    tickets = list(qs[:500])
+    if not tickets:
+        return JsonResponse({"ok": True, "pushed": 0, "errors": []})
+
+    from .router_control import provision_wifi_zone_hotspot_for_device, resolve_wifi_zone_mikrotik_for_site
+
+    # Grouper par device (un seul MikroTik peut couvrir plusieurs sites)
+    device_tickets: dict[int, tuple] = {}
+    for ticket in tickets:
+        device = resolve_wifi_zone_mikrotik_for_site(ticket.site)
+        if device is None:
+            continue
+        if device.pk not in device_tickets:
+            device_tickets[device.pk] = (device, [])
+        device_tickets[device.pk][1].append(ticket)
+
+    total_ok = 0
+    all_errors: list[str] = []
+    ip = request.META.get("REMOTE_ADDR")
+    for device, device_ticket_list in device_tickets.values():
+        ok_count, errors = provision_wifi_zone_hotspot_for_device(
+            device,
+            device_ticket_list,
+            performed_by=request.user,
+            ip_address=ip,
+        )
+        total_ok += ok_count
+        all_errors.extend(errors)
+
+    return JsonResponse({"ok": True, "pushed": total_ok, "errors": all_errors})
+
+
+@login_required
+@require_POST
+def ticket_sync_mac(request: HttpRequest, pk: int) -> JsonResponse:
+    """Remonte MAC/IP/première utilisation depuis MikroTik pour un ticket."""
+    _ensure_admin_or_tech(request.user)
+
+    qs = Ticket.objects.select_related("site")
+    if not user_sees_all_tenants(request.user):
+        tid = getattr(request.user, "tenant_id", None)
+        qs = qs.filter(site__tenant_id=tid) if tid else qs.none()
+
+    ticket = get_object_or_404(qs, pk=pk)
+
+    from .router_control import sync_ticket_mac_from_mikrotik
+
+    ok, result = sync_ticket_mac_from_mikrotik(
+        ticket,
+        performed_by=request.user,
+        ip_address=request.META.get("REMOTE_ADDR"),
+    )
+    if ok:
+        return JsonResponse({"ok": True, "mac": result})
+    return JsonResponse({"ok": False, "error": result})
 
 
 # ── 10. WEBHOOK WHATSAPP ───────────────────────────────────────────────────────

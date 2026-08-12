@@ -430,20 +430,52 @@ class RouterOSClient:
                 return []
 
         rc, out, _ = self._ssh_exec(
-            "/ip hotspot user print terse proplist=name,profile,comment,disabled"
+            "/ip hotspot user print terse proplist=name,profile,comment,disabled,mac-address"
         )
         if rc != 0:
             return []
         entries: list[dict] = []
         for line in out.splitlines():
             entry: dict = {}
-            for key in ("name", "profile", "comment", "disabled"):
-                m = re.search(rf"\b{key}=(\S+)", line)
+            for key in ("name", "profile", "comment", "disabled", "mac-address"):
+                m = re.search(rf"(?:^|\s){re.escape(key)}=(\S+)", line)
                 if m:
                     entry[key] = m.group(1)
             if "name" in entry:
                 entries.append(entry)
         return entries
+
+    def hotspot_user_details(self, name: str) -> dict | None:
+        """Retourne les détails d'un utilisateur hotspot spécifique (None si absent)."""
+        if self._mode == "dry_run":
+            return None
+
+        if self._mode == "api":
+            try:
+                rows = self._api_query("/ip/hotspot/user/print", name=name)
+                return dict(rows[0]) if rows else None
+            except Exception as exc:
+                logger.warning("hotspot_user_details API %s : %s", name, exc)
+                return None
+
+        safe_name = name.replace('"', "")
+        rc, out, _ = self._ssh_exec(
+            f'/ip hotspot user print terse where name="{safe_name}" '
+            "proplist=name,profile,comment,disabled,mac-address,limit-uptime"
+        )
+        if rc != 0 or not out.strip():
+            return None
+        for line in out.splitlines():
+            if not line.strip():
+                continue
+            entry: dict = {}
+            for key in ("name", "profile", "comment", "disabled", "mac-address", "limit-uptime"):
+                m = re.search(rf"(?:^|\s){re.escape(key)}=(\S+)", line)
+                if m:
+                    entry[key] = m.group(1)
+            if entry.get("name") == name:
+                return entry
+        return None
 
     # ── opérations ip-binding hotspot (revendeurs) ───────────────────────────
 

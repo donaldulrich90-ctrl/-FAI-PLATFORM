@@ -79,10 +79,14 @@ def duration_to_hotspot_limit_uptime(duration: str) -> str:
     from apps.wifi_zone.models import Ticket
 
     mapping = {
+        Ticket.Duration.TWO_HOURS: "2h",
         Ticket.Duration.THREE_HOURS: "3h",
+        Ticket.Duration.FOUR_HOURS: "4h",
         Ticket.Duration.ONE_DAY: "1d",
+        Ticket.Duration.FIVE_DAYS: "5d",
         Ticket.Duration.ONE_WEEK: "1w",
         Ticket.Duration.THIRTY_DAYS: "4w2d",
+        Ticket.Duration.UNLIMITED: "0s",
     }
     legacy = {"1h": "3h", "24h": "1d", "30d": "4w2d"}
     if duration in legacy:
@@ -97,10 +101,14 @@ def default_hotspot_profile_for_duration(duration: str) -> str:
 
     d = _normalize_ticket_duration_key(duration)
     mapping = {
+        Ticket.Duration.TWO_HOURS: getattr(settings, "MIKROTIK_HOTSPOT_PROFILE_2H", "2h"),
         Ticket.Duration.THREE_HOURS: getattr(settings, "MIKROTIK_HOTSPOT_PROFILE_3H", "Profil-2H"),
+        Ticket.Duration.FOUR_HOURS: getattr(settings, "MIKROTIK_HOTSPOT_PROFILE_4H", "4h"),
         Ticket.Duration.ONE_DAY: getattr(settings, "MIKROTIK_HOTSPOT_PROFILE_1D", "Profil-24H"),
+        Ticket.Duration.FIVE_DAYS: getattr(settings, "MIKROTIK_HOTSPOT_PROFILE_5J", "5j"),
         Ticket.Duration.ONE_WEEK: getattr(settings, "MIKROTIK_HOTSPOT_PROFILE_1W", "7j"),
         Ticket.Duration.THIRTY_DAYS: getattr(settings, "MIKROTIK_HOTSPOT_PROFILE_30J", "Profil-30Jours"),
+        Ticket.Duration.UNLIMITED: getattr(settings, "MIKROTIK_HOTSPOT_PROFILE_ILLIMITE", "illimite"),
     }
     if d not in mapping:
         raise ValueError(f"Durée ticket inconnue pour profil : {duration!r}")
@@ -121,10 +129,14 @@ def resolve_hotspot_profile_for_ticket(ticket: Ticket) -> str:
 
     d = _normalize_ticket_duration_key(ticket.duration)
     site_field_by_duration = {
+        T.Duration.TWO_HOURS: "wifi_zone_profile_2h",
         T.Duration.THREE_HOURS: "wifi_zone_profile_3h",
+        T.Duration.FOUR_HOURS: "wifi_zone_profile_4h",
         T.Duration.ONE_DAY: "wifi_zone_profile_1d",
+        T.Duration.FIVE_DAYS: "wifi_zone_profile_5j",
         T.Duration.ONE_WEEK: "wifi_zone_profile_1w",
         T.Duration.THIRTY_DAYS: "wifi_zone_profile_30j",
+        T.Duration.UNLIMITED: "wifi_zone_profile_illimite",
     }
     if d not in site_field_by_duration:
         raise ValueError(f"Durée ticket inconnue pour profil : {ticket.duration!r}")
@@ -407,6 +419,201 @@ def provision_wifi_zone_hotspot_for_ticket(
         )
         logger.error("provision_hotspot ticket=%s device=%s : %s", ticket.pk, device, exc)
         return False, msg
+
+
+def _provision_tickets_with_client(
+    client: RouterOSClient,
+    device: NetworkDevice,
+    tickets,
+    *,
+    performed_by=None,
+    ip_address: str | None = None,
+    dry_run: bool = False,
+) -> tuple[int, list[str]]:
+    """Pousse une liste de tickets avec un RouterOSClient déjà ouvert (une connexion partagée)."""
+    from apps.wifi_zone.models import Ticket as TicketModel
+    from django.utils import timezone as tz
+
+    server = (getattr(settings, "MIKROTIK_HOTSPOT_SERVER", "") or "").strip()
+    now = tz.now()
+    ok_count = 0
+    errors: list[str] = []
+
+    for ticket in tickets:
+        code = ticket.code.strip()
+        if any(c in code for c in '"\\\n\r\t'):
+            err = f"Code {code!r} : caractères non autorisés."
+            errors.append(err)
+            TicketModel.objects.filter(pk=ticket.pk).update(hotspot_synced_at=None, hotspot_sync_error=err[:512])
+            continue
+        try:
+            profile = _validate_hotspot_profile_name(resolve_hotspot_profile_for_ticket(ticket))
+            limit_uptime = duration_to_hotspot_limit_uptime(ticket.duration)
+        except ValueError as e:
+            err = str(e)
+            errors.append(f"{code}: {err}")
+            TicketModel.objects.filter(pk=ticket.pk).update(hotspot_synced_at=None, hotspot_sync_error=err[:512])
+            continue
+
+        password = (getattr(ticket, "hotspot_password", "") or "").strip() or code
+        comment = f"faso-wifi-zone-ticket-{ticket.pk}"
+        ok, err_msg = client.hotspot_user_upsert(
+            name=code,
+            password=password,
+            profile=profile,
+            limit_uptime=limit_uptime,
+            comment=comment,
+            server=server,
+        )
+        log_router_action(
+            device,
+            "hotspot_provision",
+            target=code,
+            command_sent=f"hotspot user add name={code} profile={profile} limit-uptime={limit_uptime}",
+            success=ok,
+            error_message=err_msg,
+            dry_run=dry_run,
+            performed_by=performed_by,
+            ip_address=ip_address,
+        )
+        if ok:
+            TicketModel.objects.filter(pk=ticket.pk).update(hotspot_synced_at=now, hotspot_sync_error="")
+            ok_count += 1
+        else:
+            TicketModel.objects.filter(pk=ticket.pk).update(hotspot_synced_at=None, hotspot_sync_error=err_msg[:512])
+            errors.append(f"{code}: {err_msg}")
+
+    return ok_count, errors
+
+
+def provision_wifi_zone_hotspot_for_batch(
+    batch,
+    tickets=None,
+    *,
+    performed_by=None,
+    ip_address: str | None = None,
+) -> tuple[int, list[str]]:
+    """Pousse tous les tickets d'un lot sur le MikroTik du site (une seule connexion)."""
+    from apps.wifi_zone.models import Ticket as TicketModel
+
+    site = batch.site
+    device = resolve_wifi_zone_mikrotik_for_site(site)
+    if device is None:
+        return 0, ["Aucun MikroTik actif pour ce site."]
+
+    if tickets is None:
+        tickets = list(TicketModel.objects.filter(batch=batch).select_related("site"))
+    else:
+        tickets = list(tickets)
+
+    if not tickets:
+        return 0, []
+
+    dry_run = bool(getattr(settings, "ROUTER_CONTROL_DRY_RUN", False))
+    try:
+        with RouterOSClient(device) as client:
+            return _provision_tickets_with_client(
+                client, device, tickets,
+                performed_by=performed_by,
+                ip_address=ip_address,
+                dry_run=dry_run,
+            )
+    except RouterOSError as exc:
+        msg = str(exc)[:500]
+        logger.error("provision_batch batch=%s device=%s : %s", batch.pk, device, exc)
+        return 0, [f"Erreur connexion MikroTik : {msg}"]
+
+
+def provision_wifi_zone_hotspot_for_device(
+    device: NetworkDevice,
+    tickets,
+    *,
+    performed_by=None,
+    ip_address: str | None = None,
+) -> tuple[int, list[str]]:
+    """Pousse une liste de tickets sur un MikroTik déjà résolu (une seule connexion)."""
+    if not device.is_active:
+        return 0, ["Équipement inactif."]
+    if device.vendor != device.Vendor.MIKROTIK:
+        return 0, ["Vendor non supporté pour le hotspot."]
+
+    tickets = list(tickets)
+    if not tickets:
+        return 0, []
+
+    dry_run = bool(getattr(settings, "ROUTER_CONTROL_DRY_RUN", False))
+    try:
+        with RouterOSClient(device) as client:
+            return _provision_tickets_with_client(
+                client, device, tickets,
+                performed_by=performed_by,
+                ip_address=ip_address,
+                dry_run=dry_run,
+            )
+    except RouterOSError as exc:
+        msg = str(exc)[:500]
+        logger.error("provision_device device=%s : %s", device, exc)
+        return 0, [f"Erreur connexion MikroTik : {msg}"]
+
+
+def sync_ticket_mac_from_mikrotik(
+    ticket: Ticket,
+    *,
+    performed_by=None,
+    ip_address: str | None = None,
+) -> tuple[bool, str]:
+    """Remonte MAC, IP et première utilisation depuis MikroTik vers le ticket."""
+    from apps.wifi_zone.models import Ticket as TicketModel
+    from django.utils import timezone as tz
+
+    site = ticket.site
+    device = resolve_wifi_zone_mikrotik_for_site(site)
+    if device is None:
+        return False, "Aucun MikroTik actif pour ce site."
+
+    code = ticket.code.strip()
+    dry_run = bool(getattr(settings, "ROUTER_CONTROL_DRY_RUN", False))
+
+    try:
+        with RouterOSClient(device) as client:
+            mac: str | None = None
+            client_ip: str | None = None
+            for session in client.hotspot_active_details():
+                if session.get("user") == code:
+                    mac = session.get("mac-address") or None
+                    client_ip = session.get("address") or None
+                    break
+            if not mac:
+                user_info = client.hotspot_user_details(code)
+                if user_info:
+                    mac = user_info.get("mac-address") or None
+    except RouterOSError as exc:
+        msg = str(exc)[:500]
+        log_router_action(
+            device, "other", target=code,
+            success=False, error_message=msg, dry_run=dry_run,
+            performed_by=performed_by, ip_address=ip_address,
+        )
+        logger.error("sync_mac ticket=%s device=%s : %s", ticket.pk, device, exc)
+        return False, msg
+
+    if not mac:
+        return False, "Aucune session active ni MAC enregistrée sur le MikroTik."
+
+    update_fields: dict = {"mac_address": mac}
+    if client_ip:
+        update_fields["client_ip"] = client_ip
+    if ticket.first_used_at is None:
+        update_fields["first_used_at"] = tz.now()
+
+    TicketModel.objects.filter(pk=ticket.pk).update(**update_fields)
+    log_router_action(
+        device, "other", target=code,
+        command_sent=f"hotspot active/user print where user={code}",
+        success=True, dry_run=dry_run,
+        performed_by=performed_by, ip_address=ip_address,
+    )
+    return True, mac
 
 
 def remove_wifi_zone_hotspot_for_ticket(

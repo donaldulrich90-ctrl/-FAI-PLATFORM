@@ -15,10 +15,14 @@ class Ticket(models.Model):
     """Ticket d'accès Wi-Fi Zone (voucher) avec code unique et commission revendeur."""
 
     class Duration(models.TextChoices):
+        TWO_HOURS = "2h", "2 heures"
         THREE_HOURS = "3h", "3 heures"
+        FOUR_HOURS = "4h", "4 heures"
         ONE_DAY = "1d", "24 heures (1 jour)"
+        FIVE_DAYS = "5j", "5 jours"
         ONE_WEEK = "1w", "7 jours"
         THIRTY_DAYS = "30j", "30 jours"
+        UNLIMITED = "illimite", "Illimité"
 
     class Status(models.TextChoices):
         AVAILABLE = "available", "Disponible"
@@ -109,6 +113,25 @@ class Ticket(models.Model):
         max_length=512,
         blank=True,
         help_text="Dernier message d’échec (SSH / configuration).",
+    )
+    mac_address = models.CharField(
+        "MAC du client",
+        max_length=17,
+        blank=True,
+        null=True,
+        help_text="Adresse MAC de l’appareil qui a activé le ticket (remontée depuis MikroTik).",
+    )
+    client_ip = models.GenericIPAddressField(
+        "IP du client",
+        null=True,
+        blank=True,
+        help_text="IP attribuée au client lors de la connexion hotspot.",
+    )
+    first_used_at = models.DateTimeField(
+        "Première utilisation",
+        null=True,
+        blank=True,
+        help_text="Date/heure de la première connexion détectée via MikroTik.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

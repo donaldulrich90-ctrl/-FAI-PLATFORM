@@ -44,11 +44,23 @@ class Site(models.Model):
         help_text="Optionnel : un seul profil RouterOS pour tous les tickets de ce site. "
         "Si vide, utilisation des profils par durée ci‑dessous, puis des valeurs globales (.env / settings).",
     )
+    wifi_zone_profile_2h = models.CharField(
+        "Profil hotspot — 2 h",
+        max_length=64,
+        blank=True,
+        help_text="Profil pour les tickets 2 heures. Vide = défaut global.",
+    )
     wifi_zone_profile_3h = models.CharField(
         "Profil hotspot — 3 h",
         max_length=64,
         blank=True,
         help_text="Nom exact du profil /ip hotspot user profile pour les tickets 3 h. Vide = défaut global.",
+    )
+    wifi_zone_profile_4h = models.CharField(
+        "Profil hotspot — 4 h",
+        max_length=64,
+        blank=True,
+        help_text="Profil pour les tickets 4 heures. Vide = défaut global.",
     )
     wifi_zone_profile_1d = models.CharField(
         "Profil hotspot — 24 h (1 jour)",
@@ -56,17 +68,29 @@ class Site(models.Model):
         blank=True,
         help_text="Profil pour les tickets 1 jour. Vide = défaut global.",
     )
+    wifi_zone_profile_5j = models.CharField(
+        "Profil hotspot — 5 jours",
+        max_length=64,
+        blank=True,
+        help_text="Profil pour les tickets 5 jours. Vide = défaut global.",
+    )
     wifi_zone_profile_1w = models.CharField(
         "Profil hotspot — 7 jours",
         max_length=64,
         blank=True,
-        help_text="Profil pour les tickets 1 semaine. Vide = défaut global.",
+        help_text="Profil pour les tickets 7 jours. Vide = défaut global.",
     )
     wifi_zone_profile_30j = models.CharField(
         "Profil hotspot — 30 jours",
         max_length=64,
         blank=True,
         help_text="Profil pour les tickets 30 jours. Vide = défaut global.",
+    )
+    wifi_zone_profile_illimite = models.CharField(
+        "Profil hotspot — Illimité",
+        max_length=64,
+        blank=True,
+        help_text="Profil pour les tickets Illimité. Vide = défaut global.",
     )
 
     class Meta:
