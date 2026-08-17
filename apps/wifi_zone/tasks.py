@@ -7,6 +7,18 @@ from datetime import date, datetime, time, timedelta
 logger = logging.getLogger(__name__)
 
 
+def expire_activated_tickets():
+    """Tâche planifiée : passe à « Expiré » les tickets Wi-Fi Zone dont la validité
+    calendaire est écoulée (à partir de leur activation) et déclenche le retrait
+    de l'utilisateur hotspot sur le MikroTik. Les tickets « Illimité » sont ignorés.
+    """
+    from apps.wifi_zone.services.ticket_activation import expire_due_tickets
+
+    n = expire_due_tickets()
+    logger.info("expire_activated_tickets : %d ticket(s) expiré(s).", n)
+    return n
+
+
 def sync_mikrotik_hotspot():
     from django.core.management import call_command
 

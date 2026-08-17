@@ -89,29 +89,16 @@ class Command(BaseCommand):
         for rev in revendeurs_qs:
             prefix = rev.ticket_prefix.upper()
 
-            # Tickets vendus (sold_at dans la plage) OU créés ce jour avec sold_by=rev
-            tickets_qs = Ticket.objects.filter(
-                Q(sold_at__gte=day_start, sold_at__lte=day_end) |
-                Q(created_at__gte=day_start, created_at__lte=day_end, sold_at__isnull=True),
-                sold_by=rev,
-            ).select_related("site").order_by("sold_at", "created_at")
+            # Recette comptée à l'ACTIVATION : tickets activés ce jour (used_at dans
+            # la plage), rattachés au revendeur (sold_by) ou à son préfixe de code.
+            activated_qs = Ticket.objects.filter(
+                Q(sold_by=rev) | Q(code__startswith=f"{prefix}-"),
+                used_at__gte=day_start,
+                used_at__lte=day_end,
+                status__in=[Ticket.Status.USED, Ticket.Status.EXPIRED],
+            ).select_related("site", "sold_by").order_by("used_at")
 
-            # Aussi inclure tous les tickets avec le préfixe créés ce jour
-            prefix_tickets_qs = Ticket.objects.filter(
-                code__startswith=f"{prefix}-",
-                created_at__gte=day_start,
-                created_at__lte=day_end,
-            ).select_related("site", "sold_by").order_by("sold_at", "created_at")
-
-            # Union (éviter les doublons via pk)
-            all_pks = set(tickets_qs.values_list("pk", flat=True)) | set(
-                prefix_tickets_qs.values_list("pk", flat=True)
-            )
-            all_tickets = Ticket.objects.filter(pk__in=all_pks).select_related(
-                "site", "sold_by"
-            ).order_by("sold_at", "created_at")
-
-            agg = all_tickets.aggregate(
+            agg = activated_qs.aggregate(
                 gross=Sum("price_xof"),
                 comm=Sum("commission_amount_xof"),
                 net=Sum("net_to_isp_xof"),
@@ -123,12 +110,17 @@ class Command(BaseCommand):
             gross = _d(agg["gross"])
             comm = _d(agg["comm"])
             net = _d(agg["net"])
-            used_count = all_tickets.filter(
-                status=Ticket.Status.USED
+            used_count = activated_qs.count()
+
+            # Nombre de tickets vendus ce jour (informatif, distinct de la recette)
+            sold_count = Ticket.objects.filter(
+                Q(sold_at__gte=day_start, sold_at__lte=day_end) |
+                Q(created_at__gte=day_start, created_at__lte=day_end, sold_at__isnull=True),
+                sold_by=rev,
             ).count()
 
             detail = []
-            for t in all_tickets:
+            for t in activated_qs:
                 detail.append({
                     "code": t.code,
                     "duration": t.duration,
@@ -138,6 +130,7 @@ class Command(BaseCommand):
                     "status": t.status,
                     "site": t.site.site_id if t.site else "",
                     "site_name": t.site.name if t.site else "",
+                    "activated_at": t.used_at.isoformat() if t.used_at else "",
                     "sold_at": t.sold_at.isoformat() if t.sold_at else "",
                     "hotspot_synced": t.hotspot_synced_at is not None,
                     "hotspot_error": t.hotspot_sync_error or "",
@@ -149,7 +142,7 @@ class Command(BaseCommand):
                 defaults={
                     "tenant": rev.tenant,
                     "prefix": prefix,
-                    "tickets_sold_count": all_tickets.count(),
+                    "tickets_sold_count": sold_count,
                     "tickets_used_count": used_count,
                     "gross_xof": gross,
                     "commission_xof": comm,
@@ -167,7 +160,7 @@ class Command(BaseCommand):
 
             self.stdout.write(
                 f"  [{prefix}] {rev.get_full_name() or rev.username} — "
-                f"{all_tickets.count()} tickets / {gross} XOF brut / "
+                f"{used_count} activés / {gross} XOF brut / "
                 f"{comm} XOF commission → {status_str}"
             )
 

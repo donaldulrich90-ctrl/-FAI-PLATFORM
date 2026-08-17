@@ -307,14 +307,11 @@ def finance_dashboard(request: HttpRequest) -> HttpResponse:
         k = str(e["entry_date"])
         daily[k] = daily.get(k, 0) + int(e["amount_xof"] or 0)
 
-    # ── revenus WiFi Zone (tickets vendus par lots, 30 derniers jours) ──
-    from apps.wifi_zone.models import Ticket, WiFiSimpleSubscriber
-    wifi_30_qs = Ticket.objects.filter(batch__isnull=False, created_at__date__gte=start_30)
-    if tid:
-        wifi_30_qs = wifi_30_qs.filter(site__tenant_id=tid)
-    for row in wifi_30_qs.values("created_at__date").annotate(day_total=Sum("net_to_isp_xof")):
-        k = str(row["created_at__date"])
-        daily[k] = daily.get(k, 0) + int(row["day_total"] or 0)
+    # ── recettes WiFi Zone : désormais comptées à l'ACTIVATION du ticket ──
+    # Chaque activation crée une écriture de caisse (income) via
+    # record_ticket_activation(), déjà agrégée dans `daily` ci-dessus.
+    # On ne compte plus les tickets à la fabrication des lots (stock non consommé).
+    from apps.wifi_zone.models import WiFiSimpleSubscriber
 
     chart_labels = [(start_30 + datetime.timedelta(days=i)).isoformat() for i in range(30)]
     chart_data = [daily.get(d, 0) for d in chart_labels]
@@ -349,11 +346,7 @@ def finance_dashboard(request: HttpRequest) -> HttpResponse:
     if tid:
         top_entries = top_entries.filter(tenant_id=tid)
     monthly_total = top_entries.aggregate(t=Sum("amount_xof"))["t"] or Decimal("0")
-
-    wifi_month_qs = Ticket.objects.filter(batch__isnull=False, created_at__date__gte=month_start)
-    if tid:
-        wifi_month_qs = wifi_month_qs.filter(site__tenant_id=tid)
-    monthly_total += wifi_month_qs.aggregate(t=Sum("net_to_isp_xof"))["t"] or Decimal("0")
+    # Les recettes WiFi Zone sont incluses via les écritures de caisse (activation).
 
     context = {
         "chart_labels": json.dumps(chart_labels),

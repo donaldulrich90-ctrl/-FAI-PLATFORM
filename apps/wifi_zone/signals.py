@@ -102,6 +102,36 @@ def wifi_zone_ticket_sync_hotspot(
         logger.warning("Échec retrait Hotspot ticket pk=%s : %s", instance.pk, err_msg)
 
 
+@receiver(post_save, sender=Ticket)
+def wifi_zone_ticket_record_activation(
+    sender,
+    instance: Ticket,
+    created,
+    update_fields=None,
+    **kwargs,
+) -> None:
+    """À la première activation (statut Utilisé), enregistre la recette + l'archive-preuve.
+
+    Idempotent (ne recrée rien si l'archive existe déjà). Couvre les activations
+    passant par .save() ; le chemin .update() de la synchro MikroTik appelle
+    record_ticket_activation() explicitement.
+    """
+    if update_fields is not None:
+        skip_only = {"hotspot_synced_at", "hotspot_sync_error", "updated_at"}
+        if set(update_fields).issubset(skip_only):
+            return
+    if instance.status == Ticket.Status.EXPIRED:
+        return
+    if instance.status != Ticket.Status.USED and not instance.is_used:
+        return
+    try:
+        from apps.wifi_zone.services.ticket_activation import record_ticket_activation
+
+        record_ticket_activation(instance)
+    except Exception:
+        logger.exception("Enregistrement activation ticket pk=%s", instance.pk)
+
+
 @receiver(post_save, sender=WiFiSimpleSubscriber)
 def wifi_simple_subscriber_sync_router(
     sender,

@@ -44,6 +44,10 @@ class Command(BaseCommand):
             fetch_mikrotik_hotspot_active_users,
             fetch_mikrotik_hotspot_all_users,
         )
+        from apps.wifi_zone.services.ticket_activation import (
+            maybe_expire_ticket,
+            record_ticket_activation,
+        )
 
         dry_run = options["dry_run"]
         if dry_run:
@@ -94,7 +98,7 @@ class Command(BaseCommand):
                 if is_active and ticket.status != Ticket.Status.USED:
                     # Le code est actif sur le routeur mais pas marqué USED en DB
                     self.stdout.write(
-                        f"  ✓ {code} — actif sur routeur → marquer USED"
+                        f"  ✓ {code} — actif sur routeur → activation (USED)"
                     )
                     if not dry_run:
                         ticket_now = timezone.now()
@@ -104,10 +108,16 @@ class Command(BaseCommand):
                             hotspot_synced_at=ticket_now,
                             hotspot_sync_error="",
                         )
-                        # Estampille used_at uniquement si pas déjà renseigné
+                        # Estampille used_at / first_used_at si pas déjà renseignés
                         Ticket.objects.filter(pk=ticket.pk, used_at__isnull=True).update(
                             used_at=ticket_now,
                         )
+                        Ticket.objects.filter(
+                            pk=ticket.pk, first_used_at__isnull=True
+                        ).update(first_used_at=ticket_now)
+                        # Recette + archive-preuve (idempotent) sur l'objet complet
+                        full_ticket = Ticket.objects.get(pk=ticket.pk)
+                        record_ticket_activation(full_ticket, activated_at=ticket_now)
                     total_synced += 1
 
                 elif is_provisioned and not is_active and ticket.hotspot_synced_at is None:
@@ -119,10 +129,18 @@ class Command(BaseCommand):
                         )
 
                 elif ticket.status == Ticket.Status.USED and not is_provisioned:
-                    # Le ticket est USED en DB mais n'existe plus sur le routeur
-                    self.stdout.write(
-                        f"  ⚠ {code} — USED en DB mais absent du routeur (expiré ?)"
-                    )
+                    # USED en DB mais absent du routeur : expirer si la validité
+                    # calendaire est écoulée (sinon on laisse tel quel).
+                    if not dry_run:
+                        full_ticket = Ticket.objects.get(pk=ticket.pk)
+                        if maybe_expire_ticket(full_ticket):
+                            self.stdout.write(
+                                f"  ⌛ {code} — validité écoulée → marqué Expiré"
+                            )
+                        else:
+                            self.stdout.write(
+                                f"  ⚠ {code} — USED en DB mais absent du routeur"
+                            )
 
         self.stdout.write(
             self.style.SUCCESS(

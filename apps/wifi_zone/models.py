@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
@@ -9,6 +10,39 @@ from django.db import models
 from django.utils import timezone
 
 from apps.core.models import NetworkDevice, Site
+
+
+# ── Validité calendaire des tickets ───────────────────────────────────────────
+# Délai de validité d'un ticket À PARTIR DE SON ACTIVATION (temps calendaire,
+# pas temps de connexion cumulé). None = jamais d'expiration (illimité).
+TICKET_DURATION_TIMEDELTA = {
+    "2h": timedelta(hours=2),
+    "3h": timedelta(hours=3),
+    "4h": timedelta(hours=4),
+    "1d": timedelta(days=1),
+    "5j": timedelta(days=5),
+    "1w": timedelta(days=7),
+    "30j": timedelta(days=30),
+    "illimite": None,
+}
+# Anciennes clés éventuellement présentes en base
+_TICKET_DURATION_LEGACY = {"1h": "3h", "24h": "1d", "1j": "1d", "7j": "1w"}
+
+
+def ticket_duration_delta(duration: str):
+    """Retourne le timedelta de validité pour une durée de ticket (None si illimité/inconnu)."""
+    key = _TICKET_DURATION_LEGACY.get(duration, duration)
+    return TICKET_DURATION_TIMEDELTA.get(key)
+
+
+def compute_ticket_expiry(activated_at, duration):
+    """Date d'expiration calendaire = activation + durée. None si illimité ou pas d'activation."""
+    if activated_at is None:
+        return None
+    delta = ticket_duration_delta(duration)
+    if delta is None:
+        return None
+    return activated_at + delta
 
 
 class Ticket(models.Model):
@@ -178,6 +212,22 @@ class Ticket(models.Model):
                 self.used_at = timezone.now()
         self.compute_commission_amounts()
         super().save(*args, **kwargs)
+
+    @property
+    def activated_at(self):
+        """Moment de l'activation du ticket (1re connexion, sinon date d'usage)."""
+        return self.first_used_at or self.used_at
+
+    @property
+    def expires_at(self):
+        """Fin de validité calendaire à partir de l'activation (None si illimité/non activé)."""
+        return compute_ticket_expiry(self.activated_at, self.duration)
+
+    @property
+    def is_expired_by_time(self) -> bool:
+        """Vrai si la durée calendaire est écoulée (indépendamment du statut en base)."""
+        exp = self.expires_at
+        return exp is not None and exp < timezone.now()
 
 
 class WifiTicketBatch(models.Model):
@@ -488,3 +538,90 @@ class TicketPlainte(models.Model):
         if not self.priority:
             self.priority = self.classify_priority(self.message_original)
         super().save(*args, **kwargs)
+
+
+class TicketConsommation(models.Model):
+    """Archive-preuve d'un ticket Wi-Fi Zone consommé (activé par un client).
+
+    Créée automatiquement à la PREMIÈRE activation d'un ticket. Sert de preuve
+    permanente de la transaction : montants encaissés, appareil du client,
+    date d'activation et d'expiration. Les montants sont dénormalisés pour que
+    la preuve reste valable même si le ticket d'origine est modifié/supprimé.
+    """
+
+    ticket = models.OneToOneField(
+        Ticket,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="consommation",
+        verbose_name="Ticket d'origine",
+    )
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
+        on_delete=models.CASCADE,
+        related_name="ticket_consommations",
+        null=True,
+        blank=True,
+        verbose_name="Organisation",
+    )
+    site = models.ForeignKey(
+        Site,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticket_consommations",
+        verbose_name="Site",
+    )
+    code = models.CharField("Code ticket", max_length=32, db_index=True)
+    duration = models.CharField("Durée", max_length=8, choices=Ticket.Duration.choices)
+    price_xof = models.DecimalField(
+        "Prix (XOF)", max_digits=12, decimal_places=0, default=Decimal("0")
+    )
+    commission_amount_xof = models.DecimalField(
+        "Commission (XOF)", max_digits=12, decimal_places=0, default=Decimal("0")
+    )
+    net_to_isp_xof = models.DecimalField(
+        "Net FAI (XOF)", max_digits=12, decimal_places=0, default=Decimal("0")
+    )
+    sold_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticket_consommations",
+        verbose_name="Revendeur / vendeur",
+    )
+    mac_address = models.CharField("MAC du client", max_length=17, blank=True)
+    client_ip = models.GenericIPAddressField("IP du client", null=True, blank=True)
+    activated_at = models.DateTimeField("Activé le", db_index=True)
+    expires_at = models.DateTimeField(
+        "Expire le",
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Fin de validité calendaire (vide = illimité).",
+    )
+    expired_at = models.DateTimeField(
+        "Expiré le",
+        null=True,
+        blank=True,
+        help_text="Date effective de passage du ticket au statut Expiré.",
+    )
+    cash_entry = models.ForeignKey(
+        "finance.CashJournalEntry",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticket_consommations",
+        verbose_name="Écriture de caisse (preuve comptable)",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "ticket consommé (archive)"
+        verbose_name_plural = "tickets consommés (archives)"
+        ordering = ["-activated_at"]
+
+    def __str__(self) -> str:
+        return f"{self.code} — activé le {self.activated_at:%d/%m/%Y %H:%M}"

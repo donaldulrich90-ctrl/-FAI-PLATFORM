@@ -55,6 +55,13 @@ SCHEDULES = [
         "repeats": -1,
     },
     {
+        "name": "Expiration tickets Wi-Fi Zone",
+        "func": "apps.wifi_zone.tasks.expire_activated_tickets",
+        "schedule_type": "C",
+        "cron": "*/15 * * * *",  # toutes les 15 minutes
+        "repeats": -1,
+    },
+    {
         "name": "Surveillance fréquences Ubiquiti",
         "func": "apps.monitoring.tasks.monitor_frequencies",
         "schedule_type": "C",

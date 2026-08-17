@@ -4,7 +4,13 @@ from django.utils.html import format_html
 
 from apps.tenants.admin_mixins import TenantScopedFKAdminMixin, TenantScopedSiteFKAdminMixin
 
-from .models import PlanAbonnement, Ticket, WifiTicketBatch, WiFiSimpleSubscriber
+from .models import (
+    PlanAbonnement,
+    Ticket,
+    TicketConsommation,
+    WifiTicketBatch,
+    WiFiSimpleSubscriber,
+)
 
 
 @admin.register(PlanAbonnement)
@@ -55,7 +61,45 @@ class TicketAdmin(TenantScopedFKAdminMixin, TenantScopedSiteFKAdminMixin, admin.
         "updated_at",
         "hotspot_synced_at",
         "hotspot_sync_error",
+        "expiration_calendaire",
     )
+
+    @admin.display(description="Expiration (calendaire)")
+    def expiration_calendaire(self, obj):
+        exp = obj.expires_at
+        if exp is None:
+            return "— (illimité ou non activé)"
+        return exp.strftime("%d/%m/%Y %H:%M")
+
+
+@admin.register(TicketConsommation)
+class TicketConsommationAdmin(admin.ModelAdmin):
+    """Archive-preuve des tickets consommés — lecture seule."""
+
+    list_display = (
+        "code",
+        "duration",
+        "price_xof",
+        "commission_amount_xof",
+        "net_to_isp_xof",
+        "sold_by",
+        "activated_at",
+        "expires_at",
+        "expired_at",
+        "site",
+    )
+    list_filter = ("duration", "site", "activated_at")
+    search_fields = ("code", "mac_address", "client_ip")
+    date_hierarchy = "activated_at"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(WiFiSimpleSubscriber)
