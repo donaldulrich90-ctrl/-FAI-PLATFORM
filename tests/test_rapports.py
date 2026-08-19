@@ -96,3 +96,28 @@ def test_rattachement_par_prefixe_sans_tiret(site):
 
     # Ancien filtre avec tiret → ne trouvait rien (le bug)
     assert Ticket.objects.filter(code__startswith="VI-").count() == 0
+
+
+def test_rapport_inclut_tous_les_revendeurs_actifs(site):
+    """Le rapport nocturne doit inclure TOUS les revendeurs actifs, même ceux
+    sans préfixe de ticket configuré."""
+    from django.core.management import call_command
+
+    from apps.finance.models import RevendeurDailyReport
+
+    User = get_user_model()
+    tenant = site.tenant
+    User.objects.create(
+        username="rev_vi", role=User.Role.REVENDEUR, is_active=True,
+        ticket_prefix="VI", tenant=tenant,
+    )
+    User.objects.create(
+        username="rev_sans_prefixe", role=User.Role.REVENDEUR, is_active=True,
+        tenant=tenant,
+    )
+
+    call_command("generate_daily_revendeur_reports", "--today")
+
+    noms = set(RevendeurDailyReport.objects.values_list("revendeur__username", flat=True))
+    assert "rev_vi" in noms
+    assert "rev_sans_prefixe" in noms          # inclus même sans préfixe

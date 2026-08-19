@@ -16,7 +16,14 @@ SCHEDULES = [
         "name": "Rapports revendeurs quotidiens",
         "func": "apps.finance.tasks.generate_daily_revendeur_reports",
         "schedule_type": "C",  # CRON
-        "cron": "0 1 * * *",  # 01h00 chaque nuit (Africa/Ouagadougou)
+        "cron": "0 0 * * *",  # 00h00 : clôture le rapport de la journée écoulée
+        "repeats": -1,
+    },
+    {
+        "name": "Rapport du jour en temps réel",
+        "func": "apps.finance.tasks.refresh_today_revendeur_reports",
+        "schedule_type": "C",
+        "cron": "*/15 * * * *",  # toutes les 15 min : suivi du jour en cours
         "repeats": -1,
     },
     {

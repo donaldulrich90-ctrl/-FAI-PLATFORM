@@ -70,9 +70,10 @@ class Command(BaseCommand):
             )
         )
 
+        # TOUS les revendeurs actifs (préfixe optionnel) : ceux sans préfixe sont
+        # rattachés à leurs tickets uniquement via sold_by.
         revendeurs_qs = User.objects.filter(
             role=User.Role.REVENDEUR,
-            ticket_prefix__gt="",
             is_active=True,
         ).select_related("tenant")
 
@@ -80,14 +81,14 @@ class Command(BaseCommand):
             revendeurs_qs = revendeurs_qs.filter(tenant__slug=options["tenant"])
 
         if not revendeurs_qs.exists():
-            self.stdout.write(self.style.WARNING("Aucun revendeur avec préfixe trouvé."))
+            self.stdout.write(self.style.WARNING("Aucun revendeur actif trouvé."))
             return
 
         created_count = 0
         updated_count = 0
 
         for rev in revendeurs_qs:
-            prefix = rev.ticket_prefix.upper()
+            prefix = (rev.ticket_prefix or "").strip().upper()
 
             # Recette comptée à l'ACTIVATION : tickets activés ce jour (used_at dans
             # la plage), rattachés au revendeur (sold_by) ou à son préfixe de code.

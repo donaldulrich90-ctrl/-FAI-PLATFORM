@@ -10,11 +10,24 @@ logger = logging.getLogger(__name__)
 
 
 def generate_daily_revendeur_reports():
+    """Clôture : génère le rapport définitif de la journée écoulée (la veille).
+    Planifiée à 00h00 — au changement de jour, la journée qui vient de se
+    terminer est figée."""
     from django.core.management import call_command
 
-    logger.info("Génération rapports revendeurs quotidiens…")
+    logger.info("Clôture rapports revendeurs (jour écoulé)…")
     call_command("generate_daily_revendeur_reports")
-    logger.info("Génération rapports revendeurs terminée.")
+    logger.info("Clôture rapports revendeurs terminée.")
+
+
+def refresh_today_revendeur_reports():
+    """Suivi en temps réel : rafraîchit le rapport du JOUR EN COURS.
+    Planifiée fréquemment (toutes les 15 min) pour que les chiffres montent
+    au fur et à mesure des activations dans la journée."""
+    from django.core.management import call_command
+
+    call_command("generate_daily_revendeur_reports", today=True)
+    logger.info("Rapport du jour rafraîchi (temps réel).")
 
 
 def send_expiry_reminders_j7() -> int:
