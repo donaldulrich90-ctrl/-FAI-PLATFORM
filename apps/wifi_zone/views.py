@@ -195,7 +195,14 @@ def revendeur_dashboard(request: HttpRequest) -> HttpResponse:
     if not user_sees_all_tenants(user):
         tid = getattr(user, "tenant_id", None)
         qs = qs.filter(site__tenant_id=tid) if tid else qs.none()
-    agg = qs.aggregate(
+
+    # On ne compte comme "vendus" que les tickets réellement ACTIVÉS par un
+    # client (consommés). Les tickets générés mais non utilisés = stock, pas
+    # de la recette.
+    activated = qs.filter(
+        status__in=[Ticket.Status.USED, Ticket.Status.EXPIRED]
+    )
+    agg = activated.aggregate(
         nb=Count("id"),
         brut=Sum("price_xof"),
         commissions=Sum("commission_amount_xof"),
@@ -208,7 +215,7 @@ def revendeur_dashboard(request: HttpRequest) -> HttpResponse:
     brut = _d(agg["brut"])
     commissions = _d(agg["commissions"])
     net_fai = _d(agg["net_fai"])
-    derniers = qs.select_related("site").order_by("-sold_at")[:25]
+    derniers = activated.select_related("site").order_by("-used_at")[:25]
 
     batches = WifiTicketBatch.objects.filter(created_by=user).select_related("site").order_by("-created_at")[:10]
 
@@ -767,14 +774,18 @@ def zones_dashboard(request: HttpRequest) -> HttpResponse:
                 if str(s.get("user", "")).upper().startswith(prefix)
             )
 
-        tickets_base = Ticket.objects.filter(sold_by=rev)
-        today_qs = tickets_base.filter(created_at__date=today)
-        today_agg = today_qs.aggregate(
-            count=Count("id"),
-            brut=Sum("price_xof", filter=Q(status=Ticket.Status.USED)),
+        # Basé sur l'ACTIVATION (used_at), pas la fabrication : ce sont les
+        # tickets réellement consommés qui comptent, le jour où ils l'ont été.
+        activated = Ticket.objects.filter(
+            sold_by=rev,
+            status__in=[Ticket.Status.USED, Ticket.Status.EXPIRED],
         )
-        month_agg = tickets_base.filter(created_at__date__gte=month_start).aggregate(
-            brut=Sum("price_xof", filter=Q(status=Ticket.Status.USED))
+        today_agg = activated.filter(used_at__date=today).aggregate(
+            count=Count("id"),
+            brut=Sum("price_xof"),
+        )
+        month_agg = activated.filter(used_at__date__gte=month_start).aggregate(
+            brut=Sum("price_xof")
         )
 
         rows.append({
@@ -815,14 +826,23 @@ def zone_daily_report(request: HttpRequest, revendeur_id: int) -> HttpResponse:
     except (ValueError, TypeError):
         selected_date = timezone.now().date()
 
+    # Base du rapport : tickets ACTIVÉS ce jour-là (used_at), quelle que soit
+    # leur date de fabrication. C'est ce qui a réellement rapporté ce jour.
     tickets = (
-        Ticket.objects.filter(sold_by=rev, created_at__date=selected_date)
+        Ticket.objects.filter(
+            sold_by=rev,
+            used_at__date=selected_date,
+            status__in=[Ticket.Status.USED, Ticket.Status.EXPIRED],
+        )
         .select_related("site")
-        .order_by("created_at")
+        .order_by("used_at")
     )
-    count_generated = tickets.count()
+    # Information seulement : tickets fabriqués ce jour-là.
+    count_generated = Ticket.objects.filter(
+        sold_by=rev, created_at__date=selected_date
+    ).count()
 
-    agg = tickets.filter(status=Ticket.Status.USED).aggregate(
+    agg = tickets.aggregate(
         count=Count("id"),
         brut=Sum("price_xof"),
         commission=Sum("commission_amount_xof"),
@@ -831,7 +851,7 @@ def zone_daily_report(request: HttpRequest, revendeur_id: int) -> HttpResponse:
 
     from django.db.models.functions import ExtractHour
     hourly = (
-        tickets.annotate(heure=ExtractHour("created_at"))
+        tickets.annotate(heure=ExtractHour("used_at"))
         .values("heure")
         .annotate(count=Count("id"), total=Sum("price_xof"))
         .order_by("heure")
@@ -840,6 +860,8 @@ def zone_daily_report(request: HttpRequest, revendeur_id: int) -> HttpResponse:
     hours_revenue = [0] * 24
     for entry in hourly:
         h = entry["heure"]
+        if h is None:
+            continue
         hours_count[h] = entry["count"]
         hours_revenue[h] = int(entry["total"] or 0)
 

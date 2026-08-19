@@ -36,17 +36,17 @@
 <div style="background:rgba(6,182,212,.06);border:1px solid rgba(6,182,212,.2);border-radius:10px;padding:10px 16px;margin-bottom:16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
   <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:rgba(6,182,212,.8);flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path stroke-linecap="round" d="M12 8v4l3 3"/></svg>
   <span style="font-size:13px;color:var(--dim);">
-    <strong style="color:var(--text);">{{ count_generated }}</strong> ticket{{ count_generated|pluralize }} généré{{ count_generated|pluralize }} ·
-    <strong style="color:#4ade80;">{{ count }}</strong> validé{{ count|pluralize }} (comptabilisé{{ count|pluralize }})
+    <strong style="color:#4ade80;">{{ count }}</strong> ticket{{ count|pluralize }} activé{{ count|pluralize }} ce jour (comptabilisé{{ count|pluralize }}) ·
+    <strong style="color:var(--text);">{{ count_generated }}</strong> fabriqué{{ count_generated|pluralize }} ce jour
   </span>
 </div>
 
 <!-- KPIs du jour -->
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px;">
   <div class="stat-card" style="--accent-color:rgba(6,182,212,.1);">
-    <div class="stat-label">Tickets validés</div>
+    <div class="stat-label">Tickets activés</div>
     <div class="stat-value" style="color:var(--cyan);">{{ count }}</div>
-    <div class="stat-change">sur {{ count_generated }} généré{{ count_generated|pluralize }}</div>
+    <div class="stat-change">ce jour · {{ count_generated }} fabriqué{{ count_generated|pluralize }}</div>
   </div>
   <div class="stat-card" style="--accent-color:rgba(201,151,44,.1);">
     <div class="stat-label">Revenus bruts</div>
@@ -71,7 +71,7 @@
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
   <!-- Graphique ventes par heure -->
   <div class="card" style="padding:20px;">
-    <div class="section-head"><h2>Ventes par heure</h2></div>
+    <div class="section-head"><h2>Activations par heure</h2></div>
     <div style="position:relative;height:200px;">
       <canvas id="hourlyChart"></canvas>
     </div>
@@ -100,7 +100,7 @@
       <thead>
         <tr>
           <th style="text-align:right;width:36px;">N°</th>
-          <th>Heure génération</th>
+          <th>Généré le</th>
           <th>Code</th>
           <th>Durée</th>
           <th>Site</th>
@@ -115,7 +115,7 @@
         {% for t in tickets %}
         <tr>
           <td style="text-align:right;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums;">{{ forloop.counter }}</td>
-          <td class="mono" style="color:var(--dim);">{{ t.created_at|date:"H:i" }}</td>
+          <td class="mono" style="color:var(--dim);">{{ t.created_at|date:"d/m H:i" }}</td>
           <td class="mono" style="font-size:12px;">{{ t.code }}</td>
           <td>
             {% with dur=t.get_duration_display %}
@@ -123,7 +123,7 @@
             {% endwith %}
           </td>
           <td style="color:var(--dim);">{{ t.site.name }}</td>
-          {% if t.status == "used" %}
+          {% if t.status == "used" or t.status == "expired" %}
           <td style="text-align:right;font-weight:600;color:var(--primary);">{{ t.price_xof|floatformat:0 }}</td>
           <td style="text-align:right;color:var(--amber);">{{ t.commission_amount_xof|floatformat:0 }}</td>
           <td style="text-align:right;color:#4ade80;">{{ t.net_to_isp_xof|floatformat:0 }}</td>
@@ -161,7 +161,7 @@
   {% else %}
   <div class="empty-state">
     <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-    <p>Aucune vente ce jour.</p>
+    <p>Aucune activation ce jour.</p>
   </div>
   {% endif %}
 </div>
