@@ -191,7 +191,13 @@ def revendeur_dashboard(request: HttpRequest) -> HttpResponse:
     _ensure_revendeur_or_admin(request.user)
 
     user = request.user
-    qs = Ticket.objects.filter(sold_by=user)
+    # Tickets du revendeur : rattachés par sold_by OU par préfixe de code
+    # (codes de la forme "VI3630", préfixe collé sans tiret).
+    prefix = (getattr(user, "ticket_prefix", "") or "").strip().upper()
+    owner = Q(sold_by=user)
+    if prefix:
+        owner |= Q(code__startswith=prefix)
+    qs = Ticket.objects.filter(owner)
     if not user_sees_all_tenants(user):
         tid = getattr(user, "tenant_id", None)
         qs = qs.filter(site__tenant_id=tid) if tid else qs.none()
@@ -774,10 +780,15 @@ def zones_dashboard(request: HttpRequest) -> HttpResponse:
                 if str(s.get("user", "")).upper().startswith(prefix)
             )
 
+        # Rattachement par sold_by OU préfixe de code (codes "VI3630").
+        prefix = (getattr(rev, "ticket_prefix", "") or "").strip().upper()
+        owner = Q(sold_by=rev)
+        if prefix:
+            owner |= Q(code__startswith=prefix)
         # Basé sur l'ACTIVATION (used_at), pas la fabrication : ce sont les
         # tickets réellement consommés qui comptent, le jour où ils l'ont été.
         activated = Ticket.objects.filter(
-            sold_by=rev,
+            owner,
             status__in=[Ticket.Status.USED, Ticket.Status.EXPIRED],
         )
         today_agg = activated.filter(used_at__date=today).aggregate(
@@ -826,11 +837,18 @@ def zone_daily_report(request: HttpRequest, revendeur_id: int) -> HttpResponse:
     except (ValueError, TypeError):
         selected_date = timezone.now().date()
 
+    # Rattachement des tickets au revendeur : sold_by OU préfixe de code
+    # (codes "VI3630" — préfixe collé, sans tiret).
+    prefix = (getattr(rev, "ticket_prefix", "") or "").strip().upper()
+    owner = Q(sold_by=rev)
+    if prefix:
+        owner |= Q(code__startswith=prefix)
+
     # Base du rapport : tickets ACTIVÉS ce jour-là (used_at), quelle que soit
     # leur date de fabrication. C'est ce qui a réellement rapporté ce jour.
     tickets = (
         Ticket.objects.filter(
-            sold_by=rev,
+            owner,
             used_at__date=selected_date,
             status__in=[Ticket.Status.USED, Ticket.Status.EXPIRED],
         )
@@ -839,7 +857,7 @@ def zone_daily_report(request: HttpRequest, revendeur_id: int) -> HttpResponse:
     )
     # Information seulement : tickets fabriqués ce jour-là.
     count_generated = Ticket.objects.filter(
-        sold_by=rev, created_at__date=selected_date
+        owner, created_at__date=selected_date
     ).count()
 
     agg = tickets.aggregate(

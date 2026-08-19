@@ -98,6 +98,9 @@ def revendeur_report_list(request: HttpRequest) -> HttpResponse:
     else:
         raise PermissionDenied
 
+    # Filtre de dates (date_from / date_to) désormais appliqué à la LISTE.
+    qs = _filter_by_date(qs, request)
+
     return render(request, "finance/revendeur_report_list.html", {"reports": qs})
 
 

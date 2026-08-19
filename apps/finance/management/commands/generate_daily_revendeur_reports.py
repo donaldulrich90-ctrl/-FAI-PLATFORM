@@ -91,8 +91,13 @@ class Command(BaseCommand):
 
             # Recette comptée à l'ACTIVATION : tickets activés ce jour (used_at dans
             # la plage), rattachés au revendeur (sold_by) ou à son préfixe de code.
+            # NB : les codes revendeurs sont de la forme "VI3630" (préfixe collé,
+            # SANS tiret), donc on filtre sur le préfixe seul.
+            owner = Q(sold_by=rev)
+            if prefix:
+                owner |= Q(code__startswith=prefix)
             activated_qs = Ticket.objects.filter(
-                Q(sold_by=rev) | Q(code__startswith=f"{prefix}-"),
+                owner,
                 used_at__gte=day_start,
                 used_at__lte=day_end,
                 status__in=[Ticket.Status.USED, Ticket.Status.EXPIRED],
@@ -112,11 +117,11 @@ class Command(BaseCommand):
             net = _d(agg["net"])
             used_count = activated_qs.count()
 
-            # Nombre de tickets vendus ce jour (informatif, distinct de la recette)
-            sold_count = Ticket.objects.filter(
+            # Nombre de tickets vendus/générés ce jour (informatif, distinct de la
+            # recette) — rattachés par sold_by OU par préfixe de code.
+            sold_count = Ticket.objects.filter(owner).filter(
                 Q(sold_at__gte=day_start, sold_at__lte=day_end) |
                 Q(created_at__gte=day_start, created_at__lte=day_end, sold_at__isnull=True),
-                sold_by=rev,
             ).count()
 
             detail = []

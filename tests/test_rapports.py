@@ -77,3 +77,22 @@ def test_rapport_journalier_base_sur_activation(site):
     # Ancienne logique (par created_at) : il aurait été rattaché à HIER → absent aujourd'hui
     genere_auj = Ticket.objects.filter(sold_by=rev, created_at__date=now.date())
     assert genere_auj.count() == 0          # c'était le bug
+
+
+def test_rattachement_par_prefixe_sans_tiret(site):
+    """Un code revendeur type 'VI3630' (préfixe collé, SANS tiret) doit être
+    rattaché au revendeur de préfixe 'VI'. L'ancien filtre 'VI-' échouait."""
+    from django.db.models import Q
+
+    t = Ticket(duration="30j", price_xof=Decimal(100000), site=site)
+    t.save()
+    Ticket.objects.filter(pk=t.pk).update(
+        code="VI3630", status=Ticket.Status.USED, used_at=timezone.now()
+    )
+
+    prefix = "VI"
+    owner = Q(code__startswith=prefix)          # logique corrigée
+    assert Ticket.objects.filter(owner).count() == 1      # ✔ rattaché
+
+    # Ancien filtre avec tiret → ne trouvait rien (le bug)
+    assert Ticket.objects.filter(code__startswith="VI-").count() == 0

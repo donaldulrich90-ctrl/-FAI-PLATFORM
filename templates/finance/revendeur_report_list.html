@@ -10,15 +10,19 @@
     <p class="page-sub">Synthèse quotidienne par revendeur — générée automatiquement à 01h00.</p>
   </div>
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-    <form method="get" action="{% url 'finance:revendeur_reports_export_excel' %}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <form method="get" action="{% url 'finance:revendeur_report_list' %}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       <input type="date" name="date_from" value="{{ request.GET.date_from }}"
              style="background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 11px;font-size:13px;font-family:inherit;outline:none;width:auto!important;">
       <input type="date" name="date_to" value="{{ request.GET.date_to }}"
              style="background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 11px;font-size:13px;font-family:inherit;outline:none;width:auto!important;">
-      <button type="submit" class="btn btn-success btn-sm">
+      <button type="submit" class="btn btn-primary btn-sm">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path stroke-linecap="round" d="m21 21-4.35-4.35"/></svg>
+        Filtrer
+      </button>
+      <a href="{% url 'finance:revendeur_reports_export_excel' %}?date_from={{ request.GET.date_from }}&amp;date_to={{ request.GET.date_to }}" class="btn btn-success btn-sm">
         <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
         Excel
-      </button>
+      </a>
     </form>
   </div>
 </div>
