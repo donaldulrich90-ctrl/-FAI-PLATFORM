@@ -636,12 +636,25 @@ def remove_wifi_zone_hotspot_for_ticket(
     try:
         with RouterOSClient(device) as client:
             ok = client.hotspot_user_remove(code)
+            # IMPORTANT : retirer l'utilisateur ne déconnecte PAS un client déjà
+            # connecté. On coupe donc aussi sa/ses session(s) active(s), sinon le
+            # ticket « ne s'expire pas » côté client tant qu'il reste en ligne.
+            try:
+                for session in client.hotspot_active_details():
+                    if session.get("user") == code:
+                        sid = session.get(".id")
+                        if sid:
+                            client.hotspot_active_remove_by_id(sid)
+            except Exception as exc:  # pragma: no cover - best effort
+                logger.warning(
+                    "remove_hotspot : échec coupure session active %s : %s", code, exc
+                )
         err_msg = "" if ok else "Échec suppression utilisateur RouterOS."
         log_router_action(
             device,
             "hotspot_remove",
             target=code,
-            command_sent=f"hotspot user remove [find name={code}]",
+            command_sent=f"hotspot user remove [find name={code}] + active remove",
             success=ok,
             error_message=err_msg,
             dry_run=dry_run,
