@@ -201,6 +201,8 @@ def block_mac_address(
     try:
         with RouterOSClient(device) as client:
             ok = client.bridge_filter_drop_by_mac(mac_n, bridge, comment)
+            # Bloquer aussi au niveau du portail captif (ip-binding blocked).
+            client.ip_binding_upsert(mac_n, "blocked", comment)
         log_router_action(
             device,
             "mac_block",
@@ -251,6 +253,8 @@ def unblock_mac_address(
     try:
         with RouterOSClient(device) as client:
             ok = client.bridge_filter_remove(comment)
+            # Contourner le portail captif pour l'abonné débloqué (ip-binding).
+            client.ip_binding_upsert(mac_n, "bypassed", comment)
         log_router_action(
             device,
             "mac_unblock",
@@ -710,11 +714,16 @@ def activate_subscriber(
             ok2 = True
             if mac:
                 ok2 = client.address_list_add(mac, "abonnes-actifs", comment)
+            # Contourner le portail captif : ip-binding "bypassed" (mécanisme
+            # natif MikroTik). Sans ça, l'abonné domicile voit la page de login.
+            ok_bind = True
+            if mac:
+                ok_bind = client.ip_binding_upsert(mac, "bypassed", comment, address=ip)
             ok3 = True
             if ip and mac:
                 bridge = _mikrotik_bridge_name(device)
                 ok3 = client.arp_add_static(ip, mac, bridge, comment)
-            ok = ok1 and ok2 and ok3
+            ok = ok1 and ok2 and ok_bind and ok3
         log_router_action(
             device, "mac_unblock", target=mac or str(subscriber.pk),
             command_sent=f"address-list add mac={mac} list=abonnes-actifs",
@@ -758,6 +767,9 @@ def suspend_subscriber(
             ok = True
             if mac:
                 ok = client.address_list_add(mac, "abonnes-suspendus", comment)
+            # Abonné suspendu : ip-binding "blocked" (coupe l'accès au portail).
+            if mac:
+                client.ip_binding_upsert(mac, "blocked", comment)
             client.arp_remove_by_comment(comment)
         log_router_action(
             device, "mac_block", target=mac or str(subscriber.pk),
