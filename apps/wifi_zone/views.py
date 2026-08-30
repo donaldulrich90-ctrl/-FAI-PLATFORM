@@ -547,7 +547,38 @@ def admin_revendeur_list(request: HttpRequest) -> HttpResponse:
     return render(request, "wifi_zone/admin_revendeur_list.html", {
         "revendeurs": revendeurs,
         "seuil_stock": seuil_stock,
+        "new_credential": request.session.pop("rev_new_credential", None),
     })
+
+
+@login_required
+@require_POST
+def revendeur_set_password(request: HttpRequest, pk: int) -> HttpResponse:
+    """Génère (ou réinitialise) le mot de passe d'un revendeur et l'affiche une fois
+    à l'admin pour qu'il le transmette. Admin uniquement."""
+    if not getattr(request.user, "is_admin_role", False):
+        raise PermissionDenied
+
+    tid = None if user_sees_all_tenants(request.user) else getattr(request.user, "tenant_id", None)
+    qs = User.objects.filter(pk=pk, role=User.Role.REVENDEUR)
+    if tid:
+        qs = qs.filter(tenant_id=tid)
+    rev = get_object_or_404(qs)
+
+    import secrets
+    alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # sans caractères ambigus (0/O, 1/I/l)
+    pwd = "".join(secrets.choice(alphabet) for _ in range(8))
+    rev.set_password(pwd)
+    rev.save(update_fields=["password"])
+
+    request.session["rev_new_credential"] = {
+        "name": rev.get_full_name() or rev.username,
+        "username": rev.username,
+        "password": pwd,
+        "phone": (getattr(rev, "phone", "") or "").strip(),
+    }
+    messages.success(request, f"Nouveau mot de passe généré pour {rev.get_full_name() or rev.username}.")
+    return redirect("wifi_zone:admin_revendeur_list")
 
 
 # ── 5. IMPRESSION PDF ─────────────────────────────────────────────────────────

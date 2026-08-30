@@ -15,6 +15,24 @@
   </a>
 </div>
 
+{% if new_credential %}
+<div class="card anim-up-1 no-print" style="padding:20px;margin-bottom:18px;border:1px solid var(--green);background:rgba(0,229,153,.06);">
+  <p style="font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 10px;">Identifiants de {{ new_credential.name }} — à transmettre au revendeur</p>
+  <div style="display:flex;flex-wrap:wrap;gap:22px;align-items:flex-end;">
+    <div><div style="font-size:11px;color:var(--muted);">Utilisateur</div><div class="mono" style="font-size:20px;font-weight:700;color:var(--text);">{{ new_credential.username }}</div></div>
+    <div><div style="font-size:11px;color:var(--muted);">Mot de passe</div><div class="mono" style="font-size:20px;font-weight:800;color:var(--green);letter-spacing:1px;">{{ new_credential.password }}</div></div>
+    <div><div style="font-size:11px;color:var(--muted);">Connexion</div><div class="mono" style="font-size:13px;color:var(--text);">{{ request.get_host }}/comptes/connexion/</div></div>
+  </div>
+  <div style="margin-top:14px;">
+    <a class="btn btn-success btn-sm" target="_blank" rel="noopener"
+       href="https://wa.me/{{ new_credential.phone|cut:'+'|cut:' ' }}?text=Vos%20identifiants%20FASO%20WiFi%20%3A%20utilisateur%20%3D%20{{ new_credential.username|urlencode }}%20%2F%20mot%20de%20passe%20%3D%20{{ new_credential.password|urlencode }}%20.%20Connexion%20%3A%20{{ request.scheme }}%3A%2F%2F{{ request.get_host }}%2Fcomptes%2Fconnexion%2F">
+      Envoyer par WhatsApp
+    </a>
+  </div>
+  <p style="font-size:11px;color:var(--muted);margin-top:10px;">⚠ Note-le maintenant — il ne s'affichera plus ensuite (tu peux toujours le régénérer).</p>
+</div>
+{% endif %}
+
 {% if revendeurs %}
 <div class="card anim-up-1" style="overflow:hidden;padding:0;">
   <div style="overflow-x:auto;">
@@ -67,7 +85,11 @@
             <span class="badge badge-red">Inactif</span>
             {% endif %}
           </td>
-          <td style="text-align:center;">
+          <td style="text-align:center;white-space:nowrap;">
+            <form method="post" action="{% url 'wifi_zone:revendeur_set_password' rev.user.pk %}" style="display:inline;margin:0;" onsubmit="return confirm('Générer un nouveau mot de passe pour {{ rev.user.get_full_name|default:rev.user.username|escapejs }} ?');">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-ghost btn-sm">🔑 Mot de passe</button>
+            </form>
             <a href="/admin/accounts/user/{{ rev.user.pk }}/change/" class="btn btn-ghost btn-sm">Modifier</a>
           </td>
         </tr>

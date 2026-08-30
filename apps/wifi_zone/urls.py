@@ -26,6 +26,7 @@ urlpatterns = [
     path("revendeur/tickets/", views.revendeur_generate_batch, name="revendeur_generate_batch"),
     path("revendeur/tickets/lot/<int:batch_pk>/imprimer/", views.revendeur_print, name="revendeur_print"),
     path("revendeur/admin/", views.admin_revendeur_list, name="admin_revendeur_list"),
+    path("revendeur/<int:pk>/mot-de-passe/", views.revendeur_set_password, name="revendeur_set_password"),
     # PDF
     path("tickets/lot/<int:batch_pk>/pdf/", views.print_batch_pdf, name="print_batch_pdf"),
     path("tickets/pdf/", views.print_tickets_pdf, name="print_tickets_pdf"),
