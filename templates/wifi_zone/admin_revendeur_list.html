@@ -49,6 +49,13 @@
             {% else %}
             <span style="color:var(--green);font-weight:600;">{{ rev.tickets_restants }}</span>
             {% endif %}
+            {% if rev.restants_par_duree %}
+            <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;margin-top:5px;">
+              {% for d in rev.restants_par_duree %}
+              <span class="badge badge-slate" style="font-size:10px;padding:2px 6px;">{{ d.label }}·{{ d.n }}</span>
+              {% endfor %}
+            </div>
+            {% endif %}
           </td>
           <td style="text-align:right;" class="mono">{{ rev.ca_xof|floatformat:0 }}</td>
           <td style="text-align:right;" class="mono" style="color:var(--amber);">{{ rev.commission_xof|floatformat:0 }}</td>

@@ -512,6 +512,8 @@ def admin_revendeur_list(request: HttpRequest) -> HttpResponse:
         qs = qs.filter(tenant_id=tid)
 
     seuil_stock = int(getattr(settings, "REVENDEUR_STOCK_ALERTE_SEUIL", 10))
+    _dur_labels = dict(Ticket.Duration.choices)
+    _dur_order = ["2h", "3h", "4h", "1d", "5j", "1w", "30j", "illimite"]
     revendeurs = []
     for rev in qs.select_related("site", "tenant"):
         prefix = (getattr(rev, "ticket_prefix", "") or "").strip().upper()
@@ -521,7 +523,12 @@ def admin_revendeur_list(request: HttpRequest) -> HttpResponse:
         owned = Ticket.objects.filter(owner)
         if tid:
             owned = owned.filter(site__tenant_id=tid)
-        restants = owned.filter(status=Ticket.Status.AVAILABLE, sold_at__isnull=True).count()
+        _dispo = owned.filter(status=Ticket.Status.AVAILABLE, sold_at__isnull=True)
+        _map = {r["duration"]: r["n"] for r in _dispo.values("duration").annotate(n=Count("id"))}
+        restants = sum(_map.values())
+        restants_par_duree = [
+            {"label": _dur_labels.get(d, d), "n": _map[d]} for d in _dur_order if _map.get(d)
+        ]
         agg = owned.aggregate(
             nb=Count("id"),
             brut=Sum("price_xof"),
@@ -534,6 +541,7 @@ def admin_revendeur_list(request: HttpRequest) -> HttpResponse:
             "commission_xof": agg["commission"] or Decimal("0"),
             "tickets_restants": restants,
             "stock_bas": restants <= seuil_stock,
+            "restants_par_duree": restants_par_duree,
         })
 
     return render(request, "wifi_zone/admin_revendeur_list.html", {
