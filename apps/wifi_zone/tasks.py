@@ -142,3 +142,50 @@ def check_payment_alerts():
     logger.info(
         "check_payment_alerts : J-1=%d envoyés, J-2=%d envoyés.", sent_j1, sent_j2
     )
+
+
+def check_revendeur_stock():
+    """
+    Tâche quotidienne : alerte chaque revendeur (WhatsApp) dont le stock de tickets
+    DISPONIBLES est tombé au niveau du seuil, et prévient l'admin.
+    Seuil configurable via REVENDEUR_STOCK_ALERTE_SEUIL (défaut : 10).
+    """
+    from django.conf import settings
+    from django.db.models import Q
+    from apps.accounts.models import User
+    from apps.wifi_zone.models import Ticket
+    from apps.notifications.whatsapp import WhatsAppService, send_admin_alert
+
+    seuil = int(getattr(settings, "REVENDEUR_STOCK_ALERTE_SEUIL", 10))
+    svc = WhatsAppService()
+
+    revendeurs = User.objects.filter(role=User.Role.REVENDEUR, is_active=True)
+    alertes = 0
+    for rev in revendeurs.select_related("tenant"):
+        prefix = (getattr(rev, "ticket_prefix", "") or "").strip().upper()
+        owner = Q(sold_by=rev)
+        if prefix:
+            owner |= Q(code__startswith=prefix)
+        owned = Ticket.objects.filter(owner)
+        tid = getattr(rev, "tenant_id", None)
+        if tid:
+            owned = owned.filter(site__tenant_id=tid)
+        restants = owned.filter(status=Ticket.Status.AVAILABLE).count()
+        if restants > seuil:
+            continue
+
+        nom = rev.get_full_name() or rev.username
+        phone = (getattr(rev, "phone", "") or "").strip()
+        if phone:
+            msg = (
+                f"Bonjour {nom}, il vous reste seulement *{restants} ticket(s)* en stock. "
+                f"Pensez à générer un nouveau lot pour éviter la rupture."
+            )
+            svc.send(phone, msg, tenant_id=tid)
+        send_admin_alert(
+            f"⚠ Stock bas revendeur : {nom} — {restants} ticket(s) restant(s) (seuil {seuil})."
+        )
+        alertes += 1
+        logger.info("check_revendeur_stock : %s stock=%d ≤ seuil=%d — alerté", nom, restants, seuil)
+
+    logger.info("check_revendeur_stock terminé : %d alerte(s) envoyée(s).", alertes)

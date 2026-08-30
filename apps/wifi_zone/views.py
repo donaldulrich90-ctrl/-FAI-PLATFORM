@@ -6,6 +6,7 @@ import json
 from datetime import date as date_type
 from decimal import Decimal
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
@@ -225,6 +226,10 @@ def revendeur_dashboard(request: HttpRequest) -> HttpResponse:
 
     batches = WifiTicketBatch.objects.filter(created_by=user).select_related("site").order_by("-created_at")[:10]
 
+    # Stock de tickets restants (générés mais pas encore utilisés)
+    tickets_restants = qs.filter(status=Ticket.Status.AVAILABLE).count()
+    seuil_stock = int(getattr(settings, "REVENDEUR_STOCK_ALERTE_SEUIL", 10))
+
     context = {
         "revendeur": user,
         "nb_ventes": agg["nb"] or 0,
@@ -234,6 +239,9 @@ def revendeur_dashboard(request: HttpRequest) -> HttpResponse:
         "derniers_tickets": derniers,
         "taux_defaut": user.default_commission_percent if getattr(user, "is_revendeur", False) else Decimal("0"),
         "recent_batches": batches,
+        "tickets_restants": tickets_restants,
+        "seuil_stock": seuil_stock,
+        "stock_bas": tickets_restants <= seuil_stock,
     }
     return render(request, "wifi_zone/revendeur_dashboard.html", context)
 
@@ -417,10 +425,18 @@ def admin_revendeur_list(request: HttpRequest) -> HttpResponse:
     if tid:
         qs = qs.filter(tenant_id=tid)
 
+    seuil_stock = int(getattr(settings, "REVENDEUR_STOCK_ALERTE_SEUIL", 10))
     revendeurs = []
     for rev in qs.select_related("site", "tenant"):
-        tickets_qs = Ticket.objects.filter(sold_by=rev)
-        agg = tickets_qs.aggregate(
+        prefix = (getattr(rev, "ticket_prefix", "") or "").strip().upper()
+        owner = Q(sold_by=rev)
+        if prefix:
+            owner |= Q(code__startswith=prefix)
+        owned = Ticket.objects.filter(owner)
+        if tid:
+            owned = owned.filter(site__tenant_id=tid)
+        restants = owned.filter(status=Ticket.Status.AVAILABLE).count()
+        agg = owned.aggregate(
             nb=Count("id"),
             brut=Sum("price_xof"),
             commission=Sum("commission_amount_xof"),
@@ -430,9 +446,14 @@ def admin_revendeur_list(request: HttpRequest) -> HttpResponse:
             "nb_tickets": agg["nb"] or 0,
             "ca_xof": agg["brut"] or Decimal("0"),
             "commission_xof": agg["commission"] or Decimal("0"),
+            "tickets_restants": restants,
+            "stock_bas": restants <= seuil_stock,
         })
 
-    return render(request, "wifi_zone/admin_revendeur_list.html", {"revendeurs": revendeurs})
+    return render(request, "wifi_zone/admin_revendeur_list.html", {
+        "revendeurs": revendeurs,
+        "seuil_stock": seuil_stock,
+    })
 
 
 # ── 5. IMPRESSION PDF ─────────────────────────────────────────────────────────

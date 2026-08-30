@@ -13,6 +13,7 @@ urlpatterns = [
         name="api_zabbix_host",
     ),
     path("antennes/", views.antenna_list, name="antenna_list"),
+    path("antennes/<int:pk>/alignement/", views.antenna_align, name="antenna_align"),
     path("antennes/<int:pk>/frequence/", views.antenna_freq_change, name="antenna_freq_change"),
     path("antennes/<int:pk>/snmp/", views.antenna_snmp_api, name="antenna_snmp_api"),
     path("antennes/<int:pk>/kick/", views.antenna_kick_station, name="antenna_kick_station"),

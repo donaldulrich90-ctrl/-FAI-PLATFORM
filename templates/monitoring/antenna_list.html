@@ -42,6 +42,9 @@
           <span id="status-text-{{ dev.pk }}">…</span>
         </span>
         {% if user.is_admin_role %}
+        <a href="{% url 'monitoring:antenna_align' dev.pk %}" class="btn btn-primary btn-sm" style="font-size:11px;padding:5px 10px;">
+          🎯 Alignement
+        </a>
         <a href="{% url 'monitoring:antenna_freq_change' dev.pk %}" class="btn btn-amber btn-sm" style="font-size:11px;padding:5px 10px;">
           Changer fréquence
         </a>

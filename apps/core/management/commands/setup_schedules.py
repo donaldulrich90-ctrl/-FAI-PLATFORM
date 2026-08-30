@@ -75,6 +75,20 @@ SCHEDULES = [
         "cron": "*/5 * * * *",  # toutes les 5 minutes
         "repeats": -1,
     },
+    {
+        "name": "Scan nocturne fréquences Ubiquiti",
+        "func": "apps.monitoring.tasks.nightly_frequency_probe",
+        "schedule_type": "C",
+        "cron": "0 3 * * *",  # 03h00 (Africa/Ouagadougou) — antennes avec scan_actif=True uniquement
+        "repeats": -1,
+    },
+    {
+        "name": "Alerte stock tickets revendeurs",
+        "func": "apps.wifi_zone.tasks.check_revendeur_stock",
+        "schedule_type": "C",
+        "cron": "0 8 * * *",  # 08h00 — prévient les revendeurs à court de tickets
+        "repeats": -1,
+    },
 ]
 
 

@@ -210,6 +210,25 @@ def antenna_list(request: HttpRequest):
 
 @login_required
 @require_GET
+def antenna_align(request: HttpRequest, pk: int):
+    """Page d'alignement d'une antenne Ubiquiti : compteur de signal en direct + bip audio."""
+    if not _admin_required(request):
+        messages.error(request, "Accès réservé aux administrateurs.")
+        return redirect("monitoring:dashboard")
+
+    device = get_object_or_404(NetworkDevice, pk=pk, vendor="ubiquiti", is_active=True)
+
+    if not user_sees_all_tenants(request.user):
+        tid = getattr(request.user, "tenant_id", None)
+        if not tid or device.site.tenant_id != tid:
+            messages.error(request, "Accès refusé.")
+            return redirect("monitoring:antenna_list")
+
+    return render(request, "monitoring/antenna_align.html", {"device": device})
+
+
+@login_required
+@require_GET
 def antenna_snmp_api(request: HttpRequest, pk: int) -> JsonResponse:
     """API JSON : métriques temps réel d'une antenne Ubiquiti via SSH MikroTik parent."""
     if not _admin_required(request):

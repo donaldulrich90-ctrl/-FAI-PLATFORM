@@ -119,6 +119,11 @@ class FrequenceConfig(models.Model):
     seuil_signal_min = models.IntegerField("Seuil signal minimum (dBm)", default=-75)
     seuil_capacite_min = models.IntegerField("Seuil capacité minimum (%)", default=40)
     auto_switch = models.BooleanField("Basculement automatique", default=True)
+    scan_actif = models.BooleanField(
+        "Scan actif de nuit",
+        default=False,
+        help_text="Teste chaque fréquence candidate la nuit pour garder la plus propre (coupe brièvement le lien à chaque test).",
+    )
     derniere_modif = models.DateTimeField("Dernière modification", null=True, blank=True)
     historique_json = models.JSONField("Historique JSON", default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -178,3 +183,37 @@ class HistoriqueFrequence(models.Model):
 
     def __str__(self) -> str:
         return f"{self.device.name}: {self.freq_avant}→{self.freq_apres} MHz ({self.created_at:%d/%m %H:%M})"
+
+
+class FrequenceMesure(models.Model):
+    """Mesure RF horodatée par fréquence — carte de propreté pour choisir/garder la meilleure fréquence."""
+
+    class Source(models.TextChoices):
+        PASSIF = "passif", "Passif (surveillance)"
+        SCAN = "scan", "Scan actif"
+
+    device = models.ForeignKey(
+        NetworkDevice,
+        on_delete=models.CASCADE,
+        related_name="freq_mesures",
+        verbose_name="Antenne",
+    )
+    freq_mhz = models.IntegerField("Fréquence (MHz)", db_index=True)
+    noise_floor_dbm = models.IntegerField("Bruit de fond (dBm)", null=True, blank=True)
+    snr = models.FloatField("SNR (dB)", null=True, blank=True)
+    signal_dbm = models.IntegerField("Signal (dBm)", null=True, blank=True)
+    source = models.CharField(
+        "Source", max_length=10, choices=Source.choices, default=Source.PASSIF, db_index=True
+    )
+    measured_at = models.DateTimeField("Mesuré le", auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "mesure fréquence"
+        verbose_name_plural = "mesures fréquences"
+        ordering = ["-measured_at"]
+        indexes = [
+            models.Index(fields=["device", "freq_mhz", "-measured_at"], name="freqmes_dev_freq_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.device.name} @ {self.freq_mhz} MHz — bruit={self.noise_floor_dbm} SNR={self.snr}"

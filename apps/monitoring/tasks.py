@@ -26,7 +26,7 @@ def monitor_frequencies():
         execute_frequency_change,
         STATE_NORMAL,
     )
-    from apps.monitoring.frequency_scanner import get_best_frequency
+    from apps.monitoring.frequency_scanner import get_best_frequency, record_measurement
 
     configs = (
         FrequenceConfig.objects.select_related("device")
@@ -50,6 +50,8 @@ def monitor_frequencies():
             snr = metrics.rssi_dbm - metrics.noise_floor_dbm
 
         state = classify_antenna_state(metrics, cfg)
+        # Carte de propreté (méthode A) : mémorise le bruit/SNR de la fréquence courante
+        record_measurement(device, metrics, source="passif")
         checked += 1
 
         if state == STATE_NORMAL:
@@ -86,3 +88,41 @@ def monitor_frequencies():
             logger.info("monitor_frequencies: %s → %d MHz (score=%.2f)", device, new_freq, score)
 
     logger.info("monitor_frequencies terminé : %d antennes vérifiées, %d changements", checked, changed)
+
+
+def nightly_frequency_probe():
+    """
+    Scan actif nocturne (méthode B) : pour chaque antenne avec scan_actif=True, teste toutes les
+    fréquences candidates et se cale sur la plus propre. Coupe brièvement le lien à chaque test —
+    prévu pour tourner la nuit. Purge aussi les vieilles mesures (> 30 jours).
+    """
+    from datetime import timedelta
+    from django.utils import timezone
+    from apps.monitoring.models import FrequenceConfig, FrequenceMesure
+    from apps.monitoring.frequency_scanner import probe_best_frequency
+
+    # Purge des mesures anciennes pour borner la taille de la carte de propreté
+    try:
+        deleted, _ = FrequenceMesure.objects.filter(
+            measured_at__lt=timezone.now() - timedelta(days=30)
+        ).delete()
+        if deleted:
+            logger.info("nightly_frequency_probe: %d mesures anciennes purgées", deleted)
+    except Exception as exc:
+        logger.warning("nightly_frequency_probe: purge échouée — %s", exc)
+
+    configs = (
+        FrequenceConfig.objects.select_related("device")
+        .filter(scan_actif=True, device__is_active=True)
+    )
+
+    scanned = 0
+    for cfg in configs:
+        try:
+            res = probe_best_frequency(cfg.device, cfg)
+            logger.info("nightly_frequency_probe(%s): %s", cfg.device, res)
+            scanned += 1
+        except Exception as exc:
+            logger.exception("nightly_frequency_probe(%s) échec — %s", cfg.device, exc)
+
+    logger.info("nightly_frequency_probe terminé : %d antenne(s) scannée(s)", scanned)

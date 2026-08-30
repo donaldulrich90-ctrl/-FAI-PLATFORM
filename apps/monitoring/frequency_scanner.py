@@ -107,19 +107,120 @@ def get_best_frequency(device: "NetworkDevice", config: "FrequenceConfig") -> tu
         )
         return None, 0.0
 
-    # Récupère les dernières fréquences utilisées pour chaque backup
+    # ── Choix par PROPRETÉ mesurée (carte de bruit) ──────────────────────
+    from apps.monitoring.models import FrequenceMesure
+    from django.db.models import Avg
+
+    window_days = getattr(settings, "FREQUENCY_CLEANLINESS_WINDOW_DAYS", 7)
+    since = now - timedelta(days=window_days)
+    noise_by_freq: dict[int, float] = {}
+    for f in backup_freqs:
+        agg = FrequenceMesure.objects.filter(
+            device=device, freq_mhz=f, measured_at__gte=since, noise_floor_dbm__isnull=False
+        ).aggregate(n=Avg("noise_floor_dbm"))
+        if agg["n"] is not None:
+            noise_by_freq[f] = agg["n"]
+
+    if noise_by_freq:
+        # bruit le plus faible (le plus négatif) = fréquence la plus propre → on la garde
+        best = min(noise_by_freq, key=lambda f: noise_by_freq[f])
+        vals = list(noise_by_freq.values())
+        lo, hi = min(vals), max(vals)
+        score = 1.0 if hi == lo else round(0.7 + 0.3 * (hi - noise_by_freq[best]) / (hi - lo), 2)
+        logger.info(
+            "get_best_frequency(%s): choix par propreté → %d MHz (bruit≈%.1f dBm)",
+            device, best, noise_by_freq[best],
+        )
+        return best, score
+
+    # ── Repli : fréquence la moins récemment utilisée (aucune mesure disponible) ──
     freq_last_used: dict[int, float] = {}
     for f in backup_freqs:
         last = HistoriqueFrequence.objects.filter(device=device, freq_apres=f).first()
-        if last:
-            freq_last_used[f] = last.created_at.timestamp()
-        else:
-            freq_last_used[f] = 0.0  # jamais utilisé = priorité maximale
+        freq_last_used[f] = last.created_at.timestamp() if last else 0.0
 
-    # Trie par timestamp croissant (le moins récemment utilisé en premier)
     sorted_freqs = sorted(backup_freqs, key=lambda f: freq_last_used.get(f, 0.0))
     best = sorted_freqs[0]
-
-    # Score simple basé sur la priorité dans la liste de backup
     score = 1.0 - (backup_freqs.index(best) / max(len(backup_freqs), 1)) * 0.3
     return best, round(score, 2)
+
+
+def record_measurement(device: "NetworkDevice", metrics, source: str = "passif"):
+    """Enregistre une mesure RF (bruit / SNR) pour la fréquence courante — carte de propreté."""
+    from apps.monitoring.models import FrequenceMesure
+
+    freq = getattr(metrics, "freq_mhz", None)
+    if not freq:
+        return None
+    noise = getattr(metrics, "noise_floor_dbm", None)
+    rssi = getattr(metrics, "rssi_dbm", None)
+    snr = (rssi - noise) if (rssi is not None and noise is not None) else None
+    try:
+        return FrequenceMesure.objects.create(
+            device=device,
+            freq_mhz=freq,
+            noise_floor_dbm=noise,
+            snr=snr,
+            signal_dbm=rssi,
+            source=source,
+        )
+    except Exception as exc:  # pragma: no cover
+        logger.debug("record_measurement(%s) échec: %s", device, exc)
+        return None
+
+
+def probe_best_frequency(device: "NetworkDevice", config: "FrequenceConfig") -> dict:
+    """
+    SCAN ACTIF (méthode B) — teste chaque fréquence candidate, mesure le bruit, garde la plus propre.
+
+    ⚠ Chaque changement REDÉMARRE l'antenne (~30-60 s d'indisponibilité). À lancer en fenêtre creuse
+    (nuit) et uniquement sur les antennes avec scan_actif=True. Respecte ROUTER_CONTROL_DRY_RUN.
+    """
+    import time
+    from apps.monitoring.services.snmp_ubiquiti import UbiquitiAirMAXSnmpService
+    from apps.monitoring.services.ubiquiti_ssh import set_frequency
+    from apps.monitoring.models import HistoriqueFrequence
+
+    candidates: list[int] = []
+    for f in [config.freq_principale] + config.get_backup_frequencies():
+        if f and f not in candidates:
+            candidates.append(f)
+    if len(candidates) < 2:
+        return {"ok": False, "message": "Moins de 2 fréquences candidates — rien à scanner."}
+
+    settle = int(getattr(settings, "FREQUENCY_SCAN_SETTLE_SECONDS", 60))
+    dwell = int(getattr(settings, "FREQUENCY_SCAN_DWELL_SECONDS", 15))
+
+    results: dict[int, float] = {}
+    for f in candidates:
+        res = set_frequency(device, f)
+        if not res.get("ok"):
+            logger.warning("probe_best_frequency(%s): set %d MHz échoué — %s", device, f, res.get("message"))
+            continue
+        time.sleep(settle)   # attendre le redémarrage airOS
+        time.sleep(dwell)    # laisser le radio se stabiliser
+        try:
+            m = UbiquitiAirMAXSnmpService(device).fetch_full_metrics()
+        except Exception as exc:
+            logger.warning("probe_best_frequency(%s): SNMP %d MHz échoué — %s", device, f, exc)
+            continue
+        if m and m.noise_floor_dbm is not None:
+            record_measurement(device, m, source="scan")
+            results[f] = m.noise_floor_dbm
+            logger.info("probe_best_frequency(%s): %d MHz → bruit=%s dBm", device, f, m.noise_floor_dbm)
+
+    if not results:
+        return {"ok": False, "message": "Aucune mesure exploitable pendant le scan."}
+
+    best = min(results, key=lambda f: results[f])  # bruit le plus faible = plus propre
+    set_frequency(device, best)  # se caler sur la meilleure et la garder
+    HistoriqueFrequence.objects.create(
+        device=device,
+        freq_avant=candidates[0],
+        freq_apres=best,
+        raison="secours",
+        declencheur="auto",
+        notes=f"Scan nocturne — bruit par fréquence: {results}",
+    )
+    logger.info("probe_best_frequency(%s): meilleure = %d MHz (bruit=%s)", device, best, results[best])
+    return {"ok": True, "best": best, "results": results}

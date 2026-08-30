@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Alignement — {{ device.name }}{% endblock %}
+{% block breadcrumb %}Monitoring / Antennes / Alignement{% endblock %}
+
+{% block content %}
+<div class="page-header anim-up" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+  <div>
+    <h1 class="page-title">Alignement — {{ device.name }}</h1>
+    <p class="page-sub">Oriente la parabole&nbsp;: le bip monte quand le signal s'améliore. Vise le signal le plus fort (barre verte).</p>
+  </div>
+  <a href="{% url 'monitoring:antenna_list' %}" class="btn btn-ghost btn-sm">← Antennes</a>
+</div>
+
+<div class="card anim-up-1" style="max-width:560px;margin:0 auto;text-align:center;padding:26px 22px;">
+
+  <div id="status-line" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px;">
+    <span id="status-dot" style="width:10px;height:10px;border-radius:50%;background:var(--muted);display:inline-block;"></span>
+    <span id="status-text" style="font-size:13px;color:var(--muted);">Connexion…</span>
+  </div>
+
+  <!-- Grand compteur de signal -->
+  <div id="signal-value" style="font-size:64px;font-weight:800;line-height:1;letter-spacing:-.02em;color:var(--muted);font-variant-numeric:tabular-nums;">
+    —<span style="font-size:26px;font-weight:600;"> dBm</span>
+  </div>
+
+  <!-- Barres -->
+  <div id="bars" style="display:flex;gap:6px;justify-content:center;align-items:flex-end;height:64px;margin:18px 0 6px;">
+    <span class="sbar" data-i="1" style="width:34px;height:22px;border-radius:4px;background:var(--border);"></span>
+    <span class="sbar" data-i="2" style="width:34px;height:34px;border-radius:4px;background:var(--border);"></span>
+    <span class="sbar" data-i="3" style="width:34px;height:46px;border-radius:4px;background:var(--border);"></span>
+    <span class="sbar" data-i="4" style="width:34px;height:56px;border-radius:4px;background:var(--border);"></span>
+    <span class="sbar" data-i="5" style="width:34px;height:64px;border-radius:4px;background:var(--border);"></span>
+  </div>
+
+  <div style="font-size:13px;color:var(--muted);margin-bottom:20px;">
+    Pic max&nbsp;: <b id="peak-value" style="color:var(--text);">—</b>
+    <button id="reset-peak" class="btn btn-ghost btn-sm" style="padding:2px 9px;font-size:11px;margin-left:8px;">Réinit. pic</button>
+  </div>
+
+  <!-- Bouton son (obligatoire pour démarrer l'audio) -->
+  <button id="sound-btn" class="btn btn-primary" style="min-width:190px;">🔊 Activer le son</button>
+
+  <!-- Détails -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px;">
+    <div class="stat-mini"><span class="lbl">Fréquence</span><span class="val" id="d-freq">—</span></div>
+    <div class="stat-mini"><span class="lbl">Puiss. TX</span><span class="val" id="d-tx">—</span></div>
+    <div class="stat-mini"><span class="lbl">Clients</span><span class="val" id="d-clients">—</span></div>
+  </div>
+
+  <p style="font-size:11.5px;color:var(--muted);margin-top:18px;">
+    Réf. d'alignement&nbsp;: signal le plus fort du lien. Actualisation ~1&nbsp;s.
+  </p>
+</div>
+
+<style>
+  .stat-mini{background:var(--surface-2,rgba(255,255,255,.03));border:1px solid var(--border);border-radius:9px;padding:10px 8px;display:flex;flex-direction:column;gap:3px;}
+  .stat-mini .lbl{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);}
+  .stat-mini .val{font-size:15px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums;}
+  .sbar{transition:background .18s,transform .18s;}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function(){
+  const PK  = {{ device.pk }};
+  const URL = "/antennes/" + PK + "/snmp/";
+
+  let audioCtx = null, soundOn = false;
+  let currentSignal = null, online = false, peak = null, polling = false;
+
+  const $ = id => document.getElementById(id);
+
+  function signalColor(dbm){
+    if(dbm==null) return 'var(--muted)';
+    if(dbm >= -60) return 'var(--green)';
+    if(dbm >= -72) return 'var(--amber)';
+    return '#e5484d';
+  }
+  function bars(dbm){
+    if(dbm==null) return 0;
+    if(dbm >= -55) return 5;
+    if(dbm >= -63) return 4;
+    if(dbm >= -71) return 3;
+    if(dbm >= -80) return 2;
+    if(dbm >= -88) return 1;
+    return 0;
+  }
+  // -90 dBm → 300 Hz (grave, lent) ; -40 dBm → 1200 Hz (aigu, rapide)
+  function norm(dbm){ const c = Math.max(-90, Math.min(-40, dbm)); return (c + 90) / 50; }
+  function pitchFor(dbm){ return 300 + norm(dbm) * 900; }
+  function intervalFor(dbm){ return 520 - norm(dbm) * 430; } // 520 ms → 90 ms
+
+  // ── Bip ──────────────────────────────────────────────
+  let beepT = null;
+  function scheduleBeep(ms){ clearTimeout(beepT); beepT = setTimeout(beep, ms); }
+  function beep(){
+    if(!soundOn || !audioCtx || currentSignal==null || !online){ scheduleBeep(500); return; }
+    const dur = 0.06;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'sine';
+    o.frequency.value = pitchFor(currentSignal);
+    const t = audioCtx.currentTime;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.28, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(t); o.stop(t + dur);
+    scheduleBeep(intervalFor(currentSignal));
+  }
+
+  // ── Affichage ────────────────────────────────────────
+  function render(){
+    const col = signalColor(currentSignal);
+    const sv = $('signal-value');
+    if(currentSignal==null){
+      sv.innerHTML = '—<span style="font-size:26px;font-weight:600;"> dBm</span>';
+      sv.style.color = 'var(--muted)';
+    }else{
+      sv.innerHTML = currentSignal + '<span style="font-size:26px;font-weight:600;"> dBm</span>';
+      sv.style.color = col;
+    }
+    const n = bars(currentSignal);
+    document.querySelectorAll('.sbar').forEach(el=>{
+      const i = parseInt(el.dataset.i,10);
+      el.style.background = (i<=n) ? col : 'var(--border)';
+      el.style.transform  = (i<=n) ? 'scaleY(1.04)' : 'scaleY(1)';
+    });
+    $('peak-value').textContent = (peak!=null) ? (peak + ' dBm') : '—';
+    $('peak-value').style.color = signalColor(peak);
+  }
+  function setStatus(ok, txt){
+    $('status-dot').style.background = ok ? 'var(--green)' : '#e5484d';
+    $('status-text').textContent = txt;
+  }
+
+  // ── Sondage ──────────────────────────────────────────
+  async function poll(){
+    if(polling) return;
+    polling = true;
+    try{
+      const r = await fetch(URL, {headers:{'X-Requested-With':'XMLHttpRequest'}});
+      const d = await r.json();
+      if(d.error && !d.online){ online=false; currentSignal=null; setStatus(false, d.error); render(); return; }
+      online = !!d.online;
+      let sig = d.avg_signal_dbm;
+      if(d.clients && d.clients.length){
+        const s = d.clients.map(c=>c.signal_dbm).filter(x=>x!=null);
+        if(s.length) sig = Math.max.apply(null, s);
+      }
+      currentSignal = (sig!=null) ? sig : null;
+      if(currentSignal!=null && (peak==null || currentSignal>peak)) peak = currentSignal;
+      setStatus(online, online ? 'En ligne' : 'Hors ligne');
+      $('d-freq').textContent    = d.freq_mhz != null ? (d.freq_mhz/1000).toFixed(3)+' GHz' : '—';
+      $('d-tx').textContent      = d.tx_power_dbm != null ? d.tx_power_dbm+' dBm' : '—';
+      $('d-clients').textContent = d.client_count != null ? d.client_count : '—';
+      render();
+    }catch(e){
+      online = false; currentSignal = null;
+      setStatus(false, 'Erreur de connexion');
+      render();
+    }finally{
+      polling = false;
+    }
+  }
+
+  // ── Contrôles ────────────────────────────────────────
+  $('sound-btn').addEventListener('click', function(){
+    if(!soundOn){
+      try{
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+      }catch(e){ alert("Audio non disponible sur ce navigateur."); return; }
+      soundOn = true;
+      this.textContent = '🔇 Couper le son';
+      this.classList.remove('btn-primary'); this.classList.add('btn-ghost');
+      scheduleBeep(120);
+    }else{
+      soundOn = false;
+      this.textContent = '🔊 Activer le son';
+      this.classList.remove('btn-ghost'); this.classList.add('btn-primary');
+      clearTimeout(beepT);
+    }
+  });
+  $('reset-peak').addEventListener('click', function(){ peak = currentSignal; render(); });
+
+  document.addEventListener('DOMContentLoaded', function(){
+    poll();
+    setInterval(poll, 1000);
+  });
+})();
+</script>
+{% endblock %}

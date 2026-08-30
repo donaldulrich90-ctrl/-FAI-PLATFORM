@@ -25,6 +25,7 @@
           <th style="text-align:left;">Préfixe</th>
           <th style="text-align:left;">Site</th>
           <th style="text-align:right;">Tickets vendus</th>
+          <th style="text-align:right;">Restants</th>
           <th style="text-align:right;">CA brut (XOF)</th>
           <th style="text-align:right;">Commission due (XOF)</th>
           <th style="text-align:right;">Solde (XOF)</th>
@@ -42,6 +43,13 @@
           <td><span class="badge badge-cyan mono">{{ rev.user.ticket_prefix|default:"—" }}</span></td>
           <td style="color:var(--dim);">{{ rev.user.site.name|default:"—" }}</td>
           <td style="text-align:right;" class="mono">{{ rev.nb_tickets }}</td>
+          <td style="text-align:right;" class="mono">
+            {% if rev.stock_bas %}
+            <span style="color:#e5484d;font-weight:700;" title="Stock bas (≤ {{ seuil_stock }})">{{ rev.tickets_restants }} ⚠</span>
+            {% else %}
+            <span style="color:var(--green);font-weight:600;">{{ rev.tickets_restants }}</span>
+            {% endif %}
+          </td>
           <td style="text-align:right;" class="mono">{{ rev.ca_xof|floatformat:0 }}</td>
           <td style="text-align:right;" class="mono" style="color:var(--amber);">{{ rev.commission_xof|floatformat:0 }}</td>
           <td style="text-align:right;" class="mono">{{ rev.user.balance_xof|floatformat:0 }}</td>
