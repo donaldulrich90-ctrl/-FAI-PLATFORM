@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block leaflet_assets %}{% endblock %}
+{% block title %}Point de vente — Tickets{% endblock %}
+{% block breadcrumb %}Wi-Fi Zone / Point de vente{% endblock %}
+
+{% block content %}
+<div class="page-header anim-up" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+  <div>
+    <h1 class="page-title">Point de vente</h1>
+    <p class="page-sub">Clique sur une durée&nbsp;: un ticket sort de ton stock, tu donnes le code au client. Les 24h et la recette démarrent à sa 1ʳᵉ connexion.</p>
+  </div>
+  <a href="{% url 'wifi_zone:revendeur_dashboard' %}" class="btn btn-ghost btn-sm">← Tableau de bord</a>
+</div>
+
+<!-- Résumé -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:22px;">
+  <div class="stat-card anim-up-1" style="--accent-color:rgba(0,229,153,.14);">
+    <p class="stat-label">Stock total</p>
+    <p class="stat-value" style="color:var(--green);">{{ stock_total }}</p>
+  </div>
+  <div class="stat-card anim-up-2" style="--accent-color:rgba(0,194,255,.14);">
+    <p class="stat-label">Vendus aujourd'hui</p>
+    <p class="stat-value" style="color:var(--cyan);">{{ vendus_aujourdhui }}</p>
+  </div>
+</div>
+
+{% if messages %}
+  {% for m in messages %}
+  <div class="card anim-up-1" style="padding:12px 16px;margin-bottom:16px;border-left:3px solid {% if m.tags == 'error' %}#e5484d{% elif m.tags == 'warning' %}var(--amber){% else %}var(--green){% endif %};">
+    {{ m }}
+  </div>
+  {% endfor %}
+{% endif %}
+
+<!-- Dernier ticket vendu : grand code à donner au client -->
+{% if last %}
+<div class="card anim-up-1" style="padding:24px;margin-bottom:22px;border:1px solid var(--green);background:rgba(0,229,153,.06);text-align:center;">
+  <p style="font-size:13px;color:var(--muted);margin:0 0 6px;text-transform:uppercase;letter-spacing:.08em;">Ticket vendu — code à donner au client</p>
+  <div class="mono" style="font-size:46px;font-weight:800;letter-spacing:2px;color:var(--green);line-height:1;margin:6px 0;">{{ last.code }}</div>
+  <p style="color:var(--text);margin:8px 0 16px;">{{ last.duration }} · <b>{{ last.prix }} XOF</b></p>
+  <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+    <a class="btn btn-success btn-sm" target="_blank" rel="noopener"
+       href="https://wa.me/?text=Votre%20code%20WiFi%20ZONE%20%3A%20{{ last.code|urlencode }}%20({{ last.duration|urlencode }})%20-%20valable%20d%C3%A8s%20la%201re%20connexion.">
+      Envoyer par WhatsApp
+    </a>
+    <a class="btn btn-ghost btn-sm" href="{% url 'wifi_zone:revendeur_point_de_vente' %}">Nouvelle vente</a>
+  </div>
+</div>
+{% endif %}
+
+<!-- Boutons par durée -->
+{% if durations %}
+<div class="card anim-up-2" style="padding:22px;">
+  <div class="section-head" style="margin-bottom:16px;"><h2>Vendre un ticket</h2></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px;">
+    {% for d in durations %}
+    <div style="border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px;background:var(--surface);">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;">
+        <span style="font-size:17px;font-weight:700;color:var(--text);">{{ d.label }}</span>
+        <span class="badge {% if d.n <= 5 %}badge-amber{% else %}badge-slate{% endif %} mono" style="font-size:11px;">{{ d.n }} en stock</span>
+      </div>
+      <div class="mono" style="font-size:14px;color:var(--muted);">{{ d.prix|floatformat:0 }} XOF</div>
+      <form method="post" action="{% url 'wifi_zone:revendeur_point_de_vente' %}" style="margin:0;">
+        {% csrf_token %}
+        <input type="hidden" name="duration" value="{{ d.code }}">
+        <button type="submit" class="btn btn-primary" style="width:100%;">Vendre — {{ d.label }}</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="card anim-up-2" style="padding:36px 22px;text-align:center;">
+  <p style="color:var(--muted);font-size:15px;margin:0 0 14px;">Aucun ticket en stock. Génère un lot pour pouvoir vendre.</p>
+  <a href="{% url 'wifi_zone:revendeur_generate_batch' %}" class="btn btn-primary btn-sm">Générer des tickets</a>
+</div>
+{% endif %}
+{% endblock %}

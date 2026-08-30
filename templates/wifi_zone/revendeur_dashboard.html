@@ -11,6 +11,7 @@
       <p class="page-sub">Vos ventes de tickets Wi-Fi Zone et vos commissions en temps réel.</p>
     </div>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <a href="{% url 'wifi_zone:revendeur_point_de_vente' %}" class="btn btn-primary btn-sm" style="font-weight:600;">🎟 Point de vente</a>
       {% if revendeur.type_revendeur == "partenaire" %}
       <span class="badge badge-slate" style="font-size:12px;padding:5px 14px;">
         <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin-right:4px;"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -40,6 +41,13 @@
     <p class="stat-label">Tickets restants</p>
     <p class="stat-value" style="color:{% if stock_bas %}#e5484d{% else %}var(--green){% endif %};">{{ tickets_restants }}</p>
     {% if stock_bas %}<p style="font-size:11px;color:#e5484d;margin-top:2px;font-weight:600;">⚠ Stock bas — génère un lot</p>{% endif %}
+    {% if restants_par_duree %}
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:9px;justify-content:center;">
+      {% for d in restants_par_duree %}
+      <span class="badge badge-slate mono" style="font-size:11px;">{{ d.label }} · <b>{{ d.n }}</b></span>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
 
   <div class="stat-card anim-up-1" style="--accent-color:rgba(0,194,255,.14);">

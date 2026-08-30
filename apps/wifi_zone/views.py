@@ -11,7 +11,7 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Min, Q, Sum
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -226,9 +226,23 @@ def revendeur_dashboard(request: HttpRequest) -> HttpResponse:
 
     batches = WifiTicketBatch.objects.filter(created_by=user).select_related("site").order_by("-created_at")[:10]
 
-    # Stock de tickets restants (générés mais pas encore utilisés)
-    tickets_restants = qs.filter(status=Ticket.Status.AVAILABLE).count()
+    # Stock de tickets restants (générés, pas encore vendus ni utilisés)
+    dispo = qs.filter(status=Ticket.Status.AVAILABLE, sold_at__isnull=True)
+    tickets_restants = dispo.count()
     seuil_stock = int(getattr(settings, "REVENDEUR_STOCK_ALERTE_SEUIL", 10))
+
+    # Détail du stock restant PAR DURÉE (2h, 24h, 5j…)
+    _dur_labels = dict(Ticket.Duration.choices)
+    _dur_order = ["2h", "3h", "4h", "1d", "5j", "1w", "30j", "illimite"]
+    _restants_map = {
+        r["duration"]: r["n"]
+        for r in dispo.values("duration").annotate(n=Count("id"))
+    }
+    restants_par_duree = [
+        {"code": d, "label": _dur_labels.get(d, d), "n": _restants_map[d]}
+        for d in _dur_order
+        if _restants_map.get(d)
+    ]
 
     context = {
         "revendeur": user,
@@ -242,8 +256,80 @@ def revendeur_dashboard(request: HttpRequest) -> HttpResponse:
         "tickets_restants": tickets_restants,
         "seuil_stock": seuil_stock,
         "stock_bas": tickets_restants <= seuil_stock,
+        "restants_par_duree": restants_par_duree,
     }
     return render(request, "wifi_zone/revendeur_dashboard.html", context)
+
+
+@login_required
+def revendeur_point_de_vente(request: HttpRequest) -> HttpResponse:
+    """Point de vente revendeur (Option A) : cliquer une durée sort un ticket du stock.
+
+    À la vente, le ticket reçoit `sold_at` (sortie de stock) et son code s'affiche pour
+    le donner au client. La recette et l'expiration 24h ne démarrent qu'à la 1re
+    connexion WiFi du client (activation), pas à la vente.
+    """
+    _ensure_revendeur_or_admin(request.user)
+    user = request.user
+
+    prefix = (getattr(user, "ticket_prefix", "") or "").strip().upper()
+    owner = Q(sold_by=user)
+    if prefix:
+        owner |= Q(code__startswith=prefix)
+    base = Ticket.objects.filter(owner)
+    if not user_sees_all_tenants(user):
+        tid = getattr(user, "tenant_id", None)
+        base = base.filter(site__tenant_id=tid) if tid else base.none()
+
+    dispo = base.filter(status=Ticket.Status.AVAILABLE, sold_at__isnull=True)
+
+    if request.method == "POST":
+        duration = (request.POST.get("duration") or "").strip()
+        ticket_id = (
+            dispo.filter(duration=duration).order_by("code").values_list("id", flat=True).first()
+        )
+        if ticket_id is None:
+            messages.error(request, "Plus de tickets disponibles pour cette durée.")
+            return redirect("wifi_zone:revendeur_point_de_vente")
+        # Réservation atomique : un seul vendeur gagne la course sur ce ticket.
+        updated = Ticket.objects.filter(
+            id=ticket_id, sold_at__isnull=True, status=Ticket.Status.AVAILABLE
+        ).update(sold_at=timezone.now(), sold_by=user)
+        if not updated:
+            messages.warning(request, "Ce ticket vient d'être vendu, réessaie.")
+            return redirect("wifi_zone:revendeur_point_de_vente")
+        t = Ticket.objects.get(id=ticket_id)
+        request.session["pdv_last"] = {
+            "code": t.code,
+            "duration": t.get_duration_display(),
+            "prix": str(t.price_xof),
+        }
+        return redirect("wifi_zone:revendeur_point_de_vente")
+
+    # GET — durées disponibles (avec compteur et prix), stock, ventes du jour
+    _labels = dict(Ticket.Duration.choices)
+    _order = ["2h", "3h", "4h", "1d", "5j", "1w", "30j", "illimite"]
+    rows = dispo.values("duration").annotate(n=Count("id"), prix=Min("price_xof"))
+    by = {r["duration"]: r for r in rows}
+    durations = [
+        {"code": d, "label": _labels.get(d, d), "n": by[d]["n"], "prix": by[d]["prix"]}
+        for d in _order
+        if d in by
+    ]
+
+    today = timezone.localdate()
+    vendus_aujourdhui = base.filter(sold_at__date=today).count()
+
+    return render(
+        request,
+        "wifi_zone/point_de_vente.html",
+        {
+            "durations": durations,
+            "stock_total": dispo.count(),
+            "vendus_aujourdhui": vendus_aujourdhui,
+            "last": request.session.pop("pdv_last", None),
+        },
+    )
 
 
 # ── 3. GÉNÉRATION DE TICKETS REVENDEUR ───────────────────────────────────────
@@ -435,7 +521,7 @@ def admin_revendeur_list(request: HttpRequest) -> HttpResponse:
         owned = Ticket.objects.filter(owner)
         if tid:
             owned = owned.filter(site__tenant_id=tid)
-        restants = owned.filter(status=Ticket.Status.AVAILABLE).count()
+        restants = owned.filter(status=Ticket.Status.AVAILABLE, sold_at__isnull=True).count()
         agg = owned.aggregate(
             nb=Count("id"),
             brut=Sum("price_xof"),

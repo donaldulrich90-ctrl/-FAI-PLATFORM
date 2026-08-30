@@ -22,6 +22,7 @@ urlpatterns = [
     path("webhook/whatsapp/", views.whatsapp_webhook, name="whatsapp_webhook"),
     # Revendeur
     path("revendeur/", views.revendeur_dashboard, name="revendeur_dashboard"),
+    path("revendeur/vente/", views.revendeur_point_de_vente, name="revendeur_point_de_vente"),
     path("revendeur/tickets/", views.revendeur_generate_batch, name="revendeur_generate_batch"),
     path("revendeur/tickets/lot/<int:batch_pk>/imprimer/", views.revendeur_print, name="revendeur_print"),
     path("revendeur/admin/", views.admin_revendeur_list, name="admin_revendeur_list"),

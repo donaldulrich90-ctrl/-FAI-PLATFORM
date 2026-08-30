@@ -170,7 +170,7 @@ def check_revendeur_stock():
         tid = getattr(rev, "tenant_id", None)
         if tid:
             owned = owned.filter(site__tenant_id=tid)
-        restants = owned.filter(status=Ticket.Status.AVAILABLE).count()
+        restants = owned.filter(status=Ticket.Status.AVAILABLE, sold_at__isnull=True).count()
         if restants > seuil:
             continue
 
