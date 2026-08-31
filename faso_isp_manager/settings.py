@@ -25,11 +25,30 @@ ALLOWED_HOSTS = [
 ]
 
 _csrf_raw = os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "")
-CSRF_TRUSTED_ORIGINS = [x.strip() for x in _csrf_raw.split(",") if x.strip()]
+# On ne garde que les origines valides (contenant un schéma "://"), pour qu'une
+# faute de frappe dans la variable d'environnement ne fasse jamais planter le
+# démarrage de Django (erreur 4_0.E001).
+CSRF_TRUSTED_ORIGINS = [x.strip() for x in _csrf_raw.split(",") if "://" in x.strip()]
+
+# Origines de confiance construites automatiquement à partir des hôtes autorisés
+# (en https ET http) : les formulaires passent en https sans réglage manuel
+# fragile. Ainsi une adresse mal écrite dans la variable d'env ne casse plus rien.
+for _host in ALLOWED_HOSTS:
+    _host = _host.strip()
+    if not _host or _host == "*" or _host.startswith("."):
+        continue
+    for _scheme in ("https", "http"):
+        _origin = f"{_scheme}://{_host}"
+        if _origin not in CSRF_TRUSTED_ORIGINS:
+            CSRF_TRUSTED_ORIGINS.append(_origin)
+
+# Derrière le reverse-proxy (Coolify/Traefik), les requêtes arrivent en https :
+# on fait toujours confiance à l'en-tête X-Forwarded-Proto pour que Django sache
+# qu'il est en https (nécessaire à la vérification CSRF des formulaires).
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 _behind_tls = _env_bool("DJANGO_BEHIND_TLS_PROXY", "0")
 if _behind_tls:
-    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SECURE_SSL_REDIRECT = True
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
