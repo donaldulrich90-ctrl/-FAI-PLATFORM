@@ -59,11 +59,11 @@
         <span style="font-size:17px;font-weight:700;color:var(--text);">{{ d.label }}</span>
         <span class="badge {% if d.n <= 5 %}badge-amber{% else %}badge-slate{% endif %} mono" style="font-size:11px;">{{ d.n }} en stock</span>
       </div>
-      <div class="mono" style="font-size:14px;color:var(--muted);">{{ d.prix|floatformat:0 }} XOF</div>
+      <div class="mono" style="font-size:22px;font-weight:800;color:var(--green);">{{ d.prix|floatformat:0 }} <span style="font-size:12px;font-weight:500;color:var(--dim);">XOF</span></div>
       <form method="post" action="{% url 'wifi_zone:revendeur_point_de_vente' %}" style="margin:0;">
         {% csrf_token %}
         <input type="hidden" name="duration" value="{{ d.code }}">
-        <button type="submit" class="btn btn-primary" style="width:100%;">Vendre — {{ d.label }}</button>
+        <button type="submit" class="btn btn-primary" style="width:100%;">Vendre {{ d.prix|floatformat:0 }} XOF</button>
       </form>
     </div>
     {% endfor %}
@@ -71,8 +71,7 @@
 </div>
 {% else %}
 <div class="card anim-up-2" style="padding:36px 22px;text-align:center;">
-  <p style="color:var(--muted);font-size:15px;margin:0 0 14px;">Aucun ticket en stock. Génère un lot pour pouvoir vendre.</p>
-  <a href="{% url 'wifi_zone:revendeur_generate_batch' %}" class="btn btn-primary btn-sm">Générer des tickets</a>
+  <p style="color:var(--muted);font-size:15px;margin:0;">Aucun ticket en stock. Contacte l'administrateur pour un réapprovisionnement.</p>
 </div>
 {% endif %}
 {% endblock %}

@@ -338,15 +338,16 @@ def revendeur_point_de_vente(request: HttpRequest) -> HttpResponse:
 def revendeur_generate_batch(request: HttpRequest) -> HttpResponse:
     """Formulaire + traitement pour générer un lot de tickets MikroTik.
 
-    - Admin : sélectionne un revendeur AUTONOME dans un dropdown.
-    - Revendeur AUTONOME : génère pour lui-même.
-    - Revendeur PARTENAIRE : accès refusé.
+    Génération réservée à l'ADMIN : il sélectionne le revendeur destinataire
+    dans un dropdown, ce qui lui attribue le stock. Les revendeurs ne génèrent
+    PAS de tickets ; ils vendent depuis leur stock via le point de vente.
+    Un revendeur qui atteint cette URL est refusé.
     """
     user = request.user
     is_admin = getattr(user, "is_admin_role", False)
     is_rev = getattr(user, "is_revendeur", False)
 
-    if not (is_admin or is_rev):
+    if not is_admin:
         raise PermissionDenied
 
     from .services.wifi_access_code import WifiAccessCodeService
