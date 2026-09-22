@@ -7,6 +7,7 @@ from decimal import Decimal
 import pytest
 from django.contrib.auth import get_user_model
 from django.db.models import Count, Sum
+from django.test import RequestFactory
 from django.utils import timezone
 
 from apps.core.models import Site
@@ -121,3 +122,93 @@ def test_rapport_inclut_tous_les_revendeurs_actifs(site):
     noms = set(RevendeurDailyReport.objects.values_list("revendeur__username", flat=True))
     assert "rev_vi" in noms
     assert "rev_sans_prefixe" in noms          # inclus même sans préfixe
+
+
+def test_rapport_detail_compte_activation_par_prefixe(monkeypatch, site):
+    """La vue par zone doit compter l'activation du jour même si le ticket a
+    été fabriqué avant et n'a pas de ``sold_by`` (rattachement par préfixe)."""
+    User = get_user_model()
+    admin = User.objects.create_superuser(username="admin-report", password="test")
+    rev = User.objects.create(
+        username="rev-cl",
+        role=User.Role.REVENDEUR,
+        ticket_prefix="CL",
+        tenant=site.tenant,
+        site=site,
+    )
+    now = timezone.now()
+    yesterday = now - timedelta(days=1)
+
+    # Stock fabriqué aujourd'hui : informatif, mais pas encore comptabilisé.
+    Ticket.objects.create(
+        code="CL1000", duration="1d", price_xof=Decimal(500), site=site
+    )
+    # Vente réelle du jour, fabriquée la veille et déjà expirée au moment où
+    # un rapport historique est consulté.
+    activated = Ticket.objects.create(
+        code="CL1001", duration="1d", price_xof=Decimal(700), site=site
+    )
+    Ticket.objects.filter(pk=activated.pk).update(
+        created_at=yesterday,
+        first_used_at=now,
+        used_at=now,
+        status=Ticket.Status.EXPIRED,
+        is_used=False,
+    )
+
+    from apps.wifi_zone.views import zone_detail_report
+
+    request = RequestFactory().get(
+        "/wifi/zones/1/",
+        {"period": "day", "date": timezone.localdate().isoformat()},
+    )
+    request.user = admin
+    monkeypatch.setattr(
+        "apps.wifi_zone.views.render",
+        lambda _request, _template, context: context,
+    )
+    context = zone_detail_report(request, rev.pk)
+
+    assert context["count_generated"] == 1
+    assert context["count"] == 1
+    assert context["brut_xof"] == Decimal(700)
+    assert list(context["tickets"].values_list("code", flat=True)) == ["CL1001"]
+
+
+def test_export_detail_ne_contient_que_les_activations(site):
+    User = get_user_model()
+    admin = User.objects.create_superuser(username="admin-export", password="test")
+    rev = User.objects.create(
+        username="rev-export",
+        role=User.Role.REVENDEUR,
+        ticket_prefix="EX",
+        tenant=site.tenant,
+        site=site,
+    )
+    now = timezone.now()
+    Ticket.objects.create(
+        code="EX-STOCK", duration="1d", price_xof=Decimal(500), site=site
+    )
+    activated = Ticket.objects.create(
+        code="EX-USED", duration="1d", price_xof=Decimal(700), site=site
+    )
+    Ticket.objects.filter(pk=activated.pk).update(
+        used_at=now,
+        first_used_at=now,
+        status=Ticket.Status.USED,
+        is_used=True,
+    )
+
+    from apps.wifi_zone.views import zone_detail_report_csv
+
+    request = RequestFactory().get(
+        "/wifi/zones/1/export/",
+        {"period": "day", "date": timezone.localdate().isoformat()},
+    )
+    request.user = admin
+    response = zone_detail_report_csv(request, rev.pk)
+    content = response.content.decode("utf-8-sig")
+
+    assert response.status_code == 200
+    assert "EX-USED" in content
+    assert "EX-STOCK" not in content

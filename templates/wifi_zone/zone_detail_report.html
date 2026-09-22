@@ -194,7 +194,7 @@
             <span class="badge badge-slate">{{ t.get_duration_display }}</span>
           </td>
           <td style="color:var(--dim);">{{ t.site.name }}</td>
-          {% if t.status == "used" %}
+          {% if t.status == "used" or t.status == "expired" %}
           <td style="text-align:right;font-weight:600;color:var(--primary);">{{ t.price_xof|floatformat:0 }}</td>
           <td style="text-align:right;color:var(--amber);">{{ t.commission_amount_xof|floatformat:0 }}</td>
           <td style="text-align:right;color:#4ade80;">{{ t.net_to_isp_xof|floatformat:0 }}</td>

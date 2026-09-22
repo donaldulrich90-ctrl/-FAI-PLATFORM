@@ -886,6 +886,15 @@ def _get_revendeurs_qs(user):
     return qs
 
 
+def _revendeur_ticket_owner(revendeur) -> Q:
+    """Rattache les tickets au revendeur par vendeur explicite ou par préfixe."""
+    owner = Q(sold_by=revendeur)
+    prefix = (getattr(revendeur, "ticket_prefix", "") or "").strip().upper()
+    if prefix:
+        owner |= Q(code__startswith=prefix)
+    return owner
+
+
 @login_required
 def zones_dashboard(request: HttpRequest) -> HttpResponse:
     """Tableau de bord : vue globale de tous les revendeurs Wi-Fi Zone."""
@@ -1072,13 +1081,19 @@ def zone_monthly_report(request: HttpRequest, revendeur_id: int) -> HttpResponse
     prev_start = date_type(prev_year, prev_month, 1)
     prev_end = date_type(prev_year, prev_month, calendar.monthrange(prev_year, prev_month)[1])
 
-    tickets_base = Ticket.objects.filter(sold_by=rev)
+    tickets_base = Ticket.objects.filter(_revendeur_ticket_owner(rev))
+    generated_month = tickets_base.filter(
+        created_at__date__range=(month_start, month_end)
+    )
+    activated_month = tickets_base.filter(
+        used_at__date__range=(month_start, month_end),
+        status__in=[Ticket.Status.USED, Ticket.Status.EXPIRED],
+    )
 
     from datetime import timedelta
     from django.db.models.functions import TruncDate
     daily_qs = (
-        tickets_base.filter(created_at__date__range=(month_start, month_end))
-        .annotate(day=TruncDate("created_at"))
+        activated_month.annotate(day=TruncDate("used_at"))
         .values("day")
         .annotate(count=Count("id"), total=Sum("price_xof"))
         .order_by("day")
@@ -1093,21 +1108,20 @@ def zone_monthly_report(request: HttpRequest, revendeur_id: int) -> HttpResponse
         days_count.append(e["count"] if e else 0)
         cur += timedelta(days=1)
 
-    month_tickets = tickets_base.filter(created_at__date__range=(month_start, month_end))
-    count_generated = month_tickets.count()
-    month_agg = month_tickets.filter(status=Ticket.Status.USED).aggregate(
+    count_generated = generated_month.count()
+    month_agg = activated_month.aggregate(
         count=Count("id"),
         brut=Sum("price_xof"),
         commission=Sum("commission_amount_xof"),
         net=Sum("net_to_isp_xof"),
     )
-    prev_agg = tickets_base.filter(created_at__date__range=(prev_start, prev_end)).aggregate(
-        count=Count("id"), brut=Sum("price_xof")
-    )
+    prev_agg = tickets_base.filter(
+        used_at__date__range=(prev_start, prev_end),
+        status__in=[Ticket.Status.USED, Ticket.Status.EXPIRED],
+    ).aggregate(count=Count("id"), brut=Sum("price_xof"))
 
     top_durations = (
-        tickets_base.filter(created_at__date__range=(month_start, month_end))
-        .values("duration")
+        activated_month.values("duration")
         .annotate(count=Count("id"), total=Sum("price_xof"))
         .order_by("-count")
     )
@@ -1159,9 +1173,13 @@ def zone_daily_report_csv(request: HttpRequest, revendeur_id: int) -> HttpRespon
         selected_date = timezone.now().date()
 
     tickets = (
-        Ticket.objects.filter(sold_by=rev, created_at__date=selected_date)
+        Ticket.objects.filter(
+            _revendeur_ticket_owner(rev),
+            used_at__date=selected_date,
+            status__in=[Ticket.Status.USED, Ticket.Status.EXPIRED],
+        )
         .select_related("site")
-        .order_by("created_at")
+        .order_by("used_at")
     )
 
     output = io.StringIO()
@@ -1242,13 +1260,19 @@ def zone_detail_report(request: HttpRequest, revendeur_id: int) -> HttpResponse:
     today = timezone.now().date()
     period, date_start, date_end, year, month = _parse_period_range(request)
 
+    owned_tickets = Ticket.objects.filter(_revendeur_ticket_owner(rev))
+    count_generated = owned_tickets.filter(
+        created_at__date__range=(date_start, date_end)
+    ).count()
     tickets = (
-        Ticket.objects.filter(sold_by=rev, created_at__date__range=(date_start, date_end))
+        owned_tickets.filter(
+            used_at__date__range=(date_start, date_end),
+            status__in=[Ticket.Status.USED, Ticket.Status.EXPIRED],
+        )
         .select_related("site")
-        .order_by("created_at")
+        .order_by("used_at")
     )
-    count_generated = tickets.count()
-    agg = tickets.filter(status=Ticket.Status.USED).aggregate(
+    agg = tickets.aggregate(
         count=Count("id"),
         brut=Sum("price_xof"),
         commission=Sum("commission_amount_xof"),
@@ -1259,7 +1283,7 @@ def zone_detail_report(request: HttpRequest, revendeur_id: int) -> HttpResponse:
     if period == "day":
         from django.db.models.functions import ExtractHour
         hourly = (
-            tickets.annotate(heure=ExtractHour("created_at"))
+            tickets.annotate(heure=ExtractHour("used_at"))
             .values("heure")
             .annotate(count=Count("id"), total=Sum("price_xof"))
             .order_by("heure")
@@ -1276,7 +1300,7 @@ def zone_detail_report(request: HttpRequest, revendeur_id: int) -> HttpResponse:
         from datetime import timedelta
         from django.db.models.functions import TruncDate
         daily_qs = (
-            tickets.annotate(day=TruncDate("created_at"))
+            tickets.annotate(day=TruncDate("used_at"))
             .values("day")
             .annotate(count=Count("id"), total=Sum("price_xof"))
             .order_by("day")
@@ -1329,9 +1353,13 @@ def zone_detail_report_csv(request: HttpRequest, revendeur_id: int) -> HttpRespo
     period, date_start, date_end, _year, _month = _parse_period_range(request)
 
     tickets = (
-        Ticket.objects.filter(sold_by=rev, created_at__date__range=(date_start, date_end))
+        Ticket.objects.filter(
+            _revendeur_ticket_owner(rev),
+            used_at__date__range=(date_start, date_end),
+            status__in=[Ticket.Status.USED, Ticket.Status.EXPIRED],
+        )
         .select_related("site")
-        .order_by("created_at")
+        .order_by("used_at")
     )
 
     output = io.StringIO()
