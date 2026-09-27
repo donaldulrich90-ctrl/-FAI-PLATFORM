@@ -239,6 +239,8 @@ function verifyTicket() {
       html += cell('État technique', '<span class="' + techClass + '">' + d.technical_state + '</span>');
       html += cell('Adresse MAC', d.mac_address);
       html += cell('Adresse IP', d.client_ip);
+      html += cell('Données consommées', d.data_consumed || '—');
+      html += cell('Synchronisation', d.synced || '<span style="color:#d63031;">Non synchronisé</span>');
 
       // MikroTik details
       if (d.mikrotik_user) {
@@ -255,11 +257,25 @@ function verifyTicket() {
         html += cellFull('Connexion active', '🟢 IP=' + d.active_session.address + ' MAC=' + d.active_session.mac + ' Uptime=' + d.active_session.uptime);
       }
 
-      html += cell('Synchronisation', d.synced || '<span style="color:#d63031;">Non synchronisé</span>');
       if (d.sync_error) {
         html += cellFull('Erreur sync', '<span style="color:#d63031;">' + d.sync_error + '</span>');
       }
 
+      html += '</div>';
+
+      // Action buttons
+      html += '<div style="padding:12px 20px 20px;display:flex;gap:8px;flex-wrap:wrap;">';
+      if (d.active_session) {
+        html += '<button class="btn btn-warning btn-sm" onclick="ticketAction(\'' + d.code + '\', \'disconnect\')">⚡ Déconnecter</button>';
+      }
+      if (d.mikrotik_user && d.mikrotik_user.exists) {
+        if (d.mikrotik_user.disabled === 'true') {
+          html += '<button class="btn btn-success btn-sm" onclick="ticketAction(\'' + d.code + '\', \'unblock\')">🔓 Débloquer</button>';
+        } else {
+          html += '<button class="btn btn-outline-danger btn-sm" onclick="ticketAction(\'' + d.code + '\', \'block\')">🔒 Bloquer</button>';
+        }
+      }
+      html += '<button class="btn btn-danger btn-sm" onclick="if(confirm(\'Bannir ce ticket ? Cette action est irréversible.\'))ticketAction(\'' + d.code + '\', \'ban\')">🚫 Bannir</button>';
       html += '</div>';
 
       // Problems
@@ -287,6 +303,25 @@ function cellFull(label, value) {
 document.getElementById('ticket-code').addEventListener('keypress', function(e) {
   if (e.key === 'Enter') verifyTicket();
 });
+
+function ticketAction(code, action) {
+  const csrf = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}';
+  fetch('/wifi/api/ticket/' + encodeURIComponent(code) + '/' + action + '/', {
+    method: 'POST',
+    headers: {'X-CSRFToken': csrf, 'Content-Type': 'application/json'},
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        const msgs = {blocked: '🔒 Ticket bloqué', unblocked: '🔓 Ticket débloqué', banned: '🚫 Ticket banni', disconnected: '⚡ Session déconnectée'};
+        alert(msgs[d.action] || 'Action effectuée');
+        verifyTicket(); // refresh
+      } else {
+        alert('Erreur : ' + (d.error || 'inconnue'));
+      }
+    })
+    .catch(e => alert('Erreur réseau : ' + e));
+}
 
 function loadProblematic() {
   const el = document.getElementById('problematic');

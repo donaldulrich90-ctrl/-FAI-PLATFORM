@@ -54,4 +54,9 @@ urlpatterns = [
     path('tickets/verify/', views.verify_ticket_page, name='verify-ticket'),
     path('api/ticket/<str:code>/verify/', views.api_verify_ticket, name='api-verify-ticket'),
     path('api/tickets/problematic/', views.api_problematic_tickets, name='api-problematic-tickets'),
+    # Actions ticket (bloquer / débloquer / bannir / déconnecter)
+    path('api/ticket/<str:code>/block/', views.api_ticket_block, name='api-ticket-block'),
+    path('api/ticket/<str:code>/unblock/', views.api_ticket_unblock, name='api-ticket-unblock'),
+    path('api/ticket/<str:code>/ban/', views.api_ticket_ban, name='api-ticket-ban'),
+    path('api/ticket/<str:code>/disconnect/', views.api_ticket_disconnect, name='api-ticket-disconnect'),
 ]

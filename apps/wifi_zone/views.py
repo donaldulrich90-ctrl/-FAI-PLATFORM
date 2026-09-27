@@ -1969,7 +1969,9 @@ def api_verify_ticket(request: HttpRequest, code: str) -> JsonResponse:
                         "exists": True,
                         "profile": u.get("profile", "—"),
                         "uptime": u.get("uptime", "—"),
+                        "disabled": u.get("disabled", "false"),
                     }
+                    data["mikrotik_user_id"] = u.get(".id", "")
                 else:
                     data["mikrotik_user"] = {"exists": False}
                     if ticket.status == "available":
@@ -1979,11 +1981,30 @@ def api_verify_ticket(request: HttpRequest, code: str) -> JsonResponse:
                 actives = list(client.talk(["/ip/hotspot/active/print", f"?user={code}"]))
                 if actives:
                     a = actives[0]
+                    bytes_in = int(a.get("bytes-in", "0") or "0")
+                    bytes_out = int(a.get("bytes-out", "0") or "0")
+                    total_bytes = bytes_in + bytes_out
+                    if total_bytes >= 1073741824:
+                        data_consumed = f"{total_bytes / 1073741824:.2f} Go"
+                    elif total_bytes >= 1048576:
+                        data_consumed = f"{total_bytes / 1048576:.1f} Mo"
+                    elif total_bytes >= 1024:
+                        data_consumed = f"{total_bytes / 1024:.0f} Ko"
+                    else:
+                        data_consumed = f"{total_bytes} o"
                     data["active_session"] = {
                         "address": a.get("address", "—"),
                         "mac": a.get("mac-address", "—"),
                         "uptime": a.get("uptime", "—"),
+                        "session_id": a.get(".id", ""),
                     }
+                    data["bytes_in"] = bytes_in
+                    data["bytes_out"] = bytes_out
+                    data["data_consumed"] = data_consumed
+                    # Update MAC/IP from live session
+                    data["mac_address"] = a.get("mac-address", data["mac_address"])
+                    data["client_ip"] = a.get("address", data["client_ip"])
+                    data["technical_state"] = "active"
         except Exception as e:
             data["problems"].append(f"Erreur MikroTik : {e}")
 
@@ -2014,3 +2035,138 @@ def api_problematic_tickets(request: HttpRequest) -> JsonResponse:
             "error": t.hotspot_sync_error,
         })
     return JsonResponse({"tickets": result, "count": len(result)})
+
+
+# ── 15. ACTIONS TICKET (BLOQUER / BANNIR / DECONNECTER) ──────────────────────
+
+from django.views.decorators.http import require_POST as _require_POST
+
+
+@login_required
+@_require_POST
+def api_ticket_block(request: HttpRequest, code: str) -> JsonResponse:
+    """Désactive un utilisateur hotspot sur MikroTik (bloque l\'accès sans supprimer)."""
+    ticket = Ticket.objects.select_related("site").filter(code=code).first()
+    if not ticket:
+        return JsonResponse({"ok": False, "error": "Ticket introuvable"})
+
+    from .router_control import resolve_wifi_zone_mikrotik_for_site
+    device = resolve_wifi_zone_mikrotik_for_site(ticket.site) if ticket.site else None
+    if not device:
+        return JsonResponse({"ok": False, "error": "Aucun routeur MikroTik associé"})
+
+    try:
+        from apps.core.services.routeros_client import RouterOSClient
+        with RouterOSClient(device) as client:
+            users = list(client.talk(["/ip/hotspot/user/print", f"?name={code}"]))
+            if not users:
+                return JsonResponse({"ok": False, "error": "Utilisateur absent du MikroTik"})
+            uid = users[0].get(".id")
+            client.talk(["/ip/hotspot/user/set", f"=.id={uid}", "=disabled=yes"])
+
+            # Disconnect active session too
+            actives = list(client.talk(["/ip/hotspot/active/print", f"?user={code}"]))
+            for a in actives:
+                aid = a.get(".id")
+                if aid:
+                    client.talk(["/ip/hotspot/active/remove", f"=.id={aid}"])
+
+        return JsonResponse({"ok": True, "action": "blocked"})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)[:500]})
+
+
+@login_required
+@_require_POST
+def api_ticket_unblock(request: HttpRequest, code: str) -> JsonResponse:
+    """Réactive un utilisateur hotspot bloqué sur MikroTik."""
+    ticket = Ticket.objects.select_related("site").filter(code=code).first()
+    if not ticket:
+        return JsonResponse({"ok": False, "error": "Ticket introuvable"})
+
+    from .router_control import resolve_wifi_zone_mikrotik_for_site
+    device = resolve_wifi_zone_mikrotik_for_site(ticket.site) if ticket.site else None
+    if not device:
+        return JsonResponse({"ok": False, "error": "Aucun routeur MikroTik associé"})
+
+    try:
+        from apps.core.services.routeros_client import RouterOSClient
+        with RouterOSClient(device) as client:
+            users = list(client.talk(["/ip/hotspot/user/print", f"?name={code}"]))
+            if not users:
+                return JsonResponse({"ok": False, "error": "Utilisateur absent du MikroTik"})
+            uid = users[0].get(".id")
+            client.talk(["/ip/hotspot/user/set", f"=.id={uid}", "=disabled=no"])
+        return JsonResponse({"ok": True, "action": "unblocked"})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)[:500]})
+
+
+@login_required
+@_require_POST
+def api_ticket_ban(request: HttpRequest, code: str) -> JsonResponse:
+    """Bannit un ticket : supprime l\'utilisateur du MikroTik et marque le ticket expiré."""
+    ticket = Ticket.objects.select_related("site").filter(code=code).first()
+    if not ticket:
+        return JsonResponse({"ok": False, "error": "Ticket introuvable"})
+
+    from .router_control import resolve_wifi_zone_mikrotik_for_site
+    device = resolve_wifi_zone_mikrotik_for_site(ticket.site) if ticket.site else None
+    if not device:
+        return JsonResponse({"ok": False, "error": "Aucun routeur MikroTik associé"})
+
+    try:
+        from apps.core.services.routeros_client import RouterOSClient
+        with RouterOSClient(device) as client:
+            # Disconnect active sessions
+            actives = list(client.talk(["/ip/hotspot/active/print", f"?user={code}"]))
+            for a in actives:
+                aid = a.get(".id")
+                if aid:
+                    client.talk(["/ip/hotspot/active/remove", f"=.id={aid}"])
+
+            # Remove user from MikroTik
+            users = list(client.talk(["/ip/hotspot/user/print", f"?name={code}"]))
+            for u in users:
+                uid = u.get(".id")
+                if uid:
+                    client.talk(["/ip/hotspot/user/remove", f"=.id={uid}"])
+
+        # Mark ticket as expired in Django
+        ticket.status = Ticket.Status.EXPIRED
+        ticket.hotspot_synced_at = None
+        ticket.hotspot_sync_error = "Banni manuellement"
+        ticket.save()
+
+        return JsonResponse({"ok": True, "action": "banned"})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)[:500]})
+
+
+@login_required
+@_require_POST
+def api_ticket_disconnect(request: HttpRequest, code: str) -> JsonResponse:
+    """Déconnecte la session active sans bloquer ni bannir."""
+    ticket = Ticket.objects.select_related("site").filter(code=code).first()
+    if not ticket:
+        return JsonResponse({"ok": False, "error": "Ticket introuvable"})
+
+    from .router_control import resolve_wifi_zone_mikrotik_for_site
+    device = resolve_wifi_zone_mikrotik_for_site(ticket.site) if ticket.site else None
+    if not device:
+        return JsonResponse({"ok": False, "error": "Aucun routeur MikroTik associé"})
+
+    try:
+        from apps.core.services.routeros_client import RouterOSClient
+        with RouterOSClient(device) as client:
+            actives = list(client.talk(["/ip/hotspot/active/print", f"?user={code}"]))
+            if not actives:
+                return JsonResponse({"ok": False, "error": "Aucune session active"})
+            for a in actives:
+                aid = a.get(".id")
+                if aid:
+                    client.talk(["/ip/hotspot/active/remove", f"=.id={aid}"])
+        return JsonResponse({"ok": True, "action": "disconnected"})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)[:500]})
+
