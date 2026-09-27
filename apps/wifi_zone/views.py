@@ -299,6 +299,13 @@ def revendeur_point_de_vente(request: HttpRequest) -> HttpResponse:
             messages.warning(request, "Ce ticket vient d'être vendu, réessaie.")
             return redirect("wifi_zone:revendeur_point_de_vente")
         t = Ticket.objects.get(id=ticket_id)
+        # Log vente
+        try:
+            from apps.core.models import ActivityLog
+            ActivityLog.log(request, ActivityLog.Action.TICKET_SELL,
+                f"Ticket {t.code} vendu ({t.get_duration_display()}, {t.price_xof} XOF)")
+        except Exception:
+            pass
         request.session["pdv_last"] = {
             "code": t.code,
             "duration": t.get_duration_display(),
@@ -345,9 +352,10 @@ def revendeur_generate_batch(request: HttpRequest) -> HttpResponse:
     """
     user = request.user
     is_admin = getattr(user, "is_admin_role", False)
+    is_tech = getattr(user, "is_technician", False)
     is_rev = getattr(user, "is_revendeur", False)
 
-    if not is_admin:
+    if not (is_admin or is_tech):
         raise PermissionDenied
 
     from .services.wifi_access_code import WifiAccessCodeService
@@ -437,6 +445,13 @@ def revendeur_generate_batch(request: HttpRequest) -> HttpResponse:
                 messages.warning(request, err)
 
         if tickets:
+            # Log ticket generation
+            try:
+                from apps.core.models import ActivityLog
+                ActivityLog.log(request, ActivityLog.Action.TICKET_GENERATE,
+                    f"{len(tickets)} tickets générés (batch {tickets[0].batch_id})")
+            except Exception:
+                pass
             request.session[f"batch_print_{tickets[0].batch_id}"] = [t.pk for t in tickets]
             return redirect("wifi_zone:revendeur_print", batch_pk=tickets[0].batch_id)
 

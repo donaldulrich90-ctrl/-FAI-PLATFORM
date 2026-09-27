@@ -2,6 +2,7 @@ from django.urls import path
 
 from . import views
 from . import views_users
+from . import views_logs
 
 app_name = "accounts"
 
@@ -16,4 +17,7 @@ urlpatterns = [
     path("utilisateurs/<int:pk>/modifier/", views_users.user_edit, name="user_edit"),
     path("utilisateurs/<int:pk>/toggle/", views_users.user_toggle_active, name="user_toggle_active"),
     path("utilisateurs/<int:pk>/supprimer/", views_users.user_delete, name="user_delete"),
+
+    # ── Journal d'activité (admin only) ──────────────────────
+    path("logs/", views_logs.activity_log_list, name="activity_logs"),
 ]

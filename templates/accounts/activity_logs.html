@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Journal d'activité — Faso ISP{% endblock %}
+
+{% block content %}
+<div class="topbar-breadcrumb">
+  <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+  Journal d'activité
+</div>
+
+<!-- ── Stats ── -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.75rem;margin-bottom:1.25rem;">
+  <div class="card" style="padding:1rem;text-align:center;">
+    <div style="font-size:1.6rem;font-weight:700;color:var(--primary);">{{ total_logs }}</div>
+    <div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;">Total entrées</div>
+  </div>
+  <div class="card" style="padding:1rem;text-align:center;">
+    <div style="font-size:1.6rem;font-weight:700;color:var(--green);">{{ logs.paginator.count }}</div>
+    <div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;">Résultats filtrés</div>
+  </div>
+</div>
+
+<!-- ── Filtres ── -->
+<div class="card" style="padding:.75rem 1rem;margin-bottom:1rem;">
+  <form method="get" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;">
+    <div style="flex:1;min-width:140px;">
+      <label class="form-label" style="font-size:.72rem;">Action</label>
+      <select name="action" class="form-control" style="font-size:.82rem;">
+        <option value="">Toutes</option>
+        {% for val, label in action_choices %}
+          <option value="{{ val }}" {% if action_filter == val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="flex:1;min-width:140px;">
+      <label class="form-label" style="font-size:.72rem;">Utilisateur</label>
+      <input type="text" name="user" value="{{ user_filter }}" class="form-control" style="font-size:.82rem;" placeholder="Nom ou pseudo…">
+    </div>
+    <div style="flex:0 0 160px;">
+      <label class="form-label" style="font-size:.72rem;">Date</label>
+      <input type="date" name="date" value="{{ date_filter }}" class="form-control" style="font-size:.82rem;">
+    </div>
+    <button type="submit" class="btn btn-primary" style="height:36px;font-size:.82rem;">Filtrer</button>
+    <a href="{% url 'accounts:activity_logs' %}" class="btn btn-ghost" style="height:36px;font-size:.82rem;">Réinitialiser</a>
+  </form>
+</div>
+
+<!-- ── Table des logs ── -->
+<div class="card" style="padding:0;overflow-x:auto;">
+  <table class="table" style="width:100%;border-collapse:collapse;font-size:.82rem;">
+    <thead>
+      <tr style="border-bottom:1px solid var(--border);text-align:left;">
+        <th style="padding:.65rem 1rem;color:var(--muted);font-weight:600;font-size:.72rem;text-transform:uppercase;">Date & Heure</th>
+        <th style="padding:.65rem .75rem;color:var(--muted);font-weight:600;font-size:.72rem;text-transform:uppercase;">Utilisateur</th>
+        <th style="padding:.65rem .75rem;color:var(--muted);font-weight:600;font-size:.72rem;text-transform:uppercase;">Action</th>
+        <th style="padding:.65rem .75rem;color:var(--muted);font-weight:600;font-size:.72rem;text-transform:uppercase;">Détail</th>
+        <th style="padding:.65rem .75rem;color:var(--muted);font-weight:600;font-size:.72rem;text-transform:uppercase;">IP</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in logs %}
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:.6rem 1rem;white-space:nowrap;color:var(--dim);">{{ log.created_at|date:"d/m/Y H:i" }}</td>
+        <td style="padding:.6rem .75rem;">
+          {% if log.user %}
+            <span style="font-weight:600;">{{ log.user.username }}</span>
+            {% if log.user.get_full_name %}<span style="color:var(--muted);font-size:.75rem;"> ({{ log.user.get_full_name }})</span>{% endif %}
+          {% else %}
+            <span style="color:var(--muted);">—</span>
+          {% endif %}
+        </td>
+        <td style="padding:.6rem .75rem;">
+          {% if log.action == 'login' or log.action == 'logout' %}
+            <span class="badge badge-cyan" style="font-size:.7rem;">{{ log.get_action_display }}</span>
+          {% elif log.action == 'user_create' or log.action == 'user_edit' %}
+            <span class="badge badge-green" style="font-size:.7rem;">{{ log.get_action_display }}</span>
+          {% elif log.action == 'user_delete' %}
+            <span class="badge badge-red" style="font-size:.7rem;">{{ log.get_action_display }}</span>
+          {% elif log.action == 'ticket_generate' or log.action == 'ticket_sell' or log.action == 'ticket_activate' %}
+            <span class="badge" style="font-size:.7rem;background:rgba(245,158,11,.15);color:var(--amber);">{{ log.get_action_display }}</span>
+          {% else %}
+            <span class="badge" style="font-size:.7rem;background:var(--surface);color:var(--dim);">{{ log.get_action_display }}</span>
+          {% endif %}
+        </td>
+        <td style="padding:.6rem .75rem;color:var(--dim);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ log.detail|truncatewords:20 }}</td>
+        <td style="padding:.6rem .75rem;color:var(--muted);font-family:monospace;font-size:.75rem;">{{ log.ip_address|default:"—" }}</td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="5" style="padding:2rem;text-align:center;color:var(--muted);">
+          <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom:.5rem;opacity:.4;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+          <br>Aucun log trouvé
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- ── Pagination ── -->
+{% if logs.has_other_pages %}
+<div style="display:flex;justify-content:center;gap:.4rem;margin-top:1rem;">
+  {% if logs.has_previous %}
+  <a href="?page={{ logs.previous_page_number }}&action={{ action_filter }}&user={{ user_filter }}&date={{ date_filter }}" class="btn btn-ghost" style="font-size:.8rem;">← Précédent</a>
+  {% endif %}
+  <span style="padding:.4rem .75rem;font-size:.8rem;color:var(--dim);">Page {{ logs.number }} / {{ logs.paginator.num_pages }}</span>
+  {% if logs.has_next %}
+  <a href="?page={{ logs.next_page_number }}&action={{ action_filter }}&user={{ user_filter }}&date={{ date_filter }}" class="btn btn-ghost" style="font-size:.8rem;">Suivant →</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

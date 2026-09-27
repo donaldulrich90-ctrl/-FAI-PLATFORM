@@ -9,7 +9,7 @@ from django.core.paginator import Paginator
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
-from apps.core.models import Site
+from apps.core.models import ActivityLog, Site
 
 User = get_user_model()
 
@@ -132,6 +132,7 @@ def user_create(request: HttpRequest) -> HttpResponse:
         user.set_password(password)
         user.save()
 
+        ActivityLog.log(request, ActivityLog.Action.USER_CREATE, f"Créé: {username} (rôle: {user.get_role_display()})")
         messages.success(request, f"Utilisateur « {username} » créé avec succès (rôle : {user.get_role_display()}).")
         return redirect("accounts:user_list")
 
@@ -192,6 +193,7 @@ def user_edit(request: HttpRequest, pk: int) -> HttpResponse:
             target.set_password(new_password)
 
         target.save()
+        ActivityLog.log(request, ActivityLog.Action.USER_EDIT, f"Modifié: {target.username}")
         messages.success(request, f"Utilisateur « {target.username} » mis à jour.")
         return redirect("accounts:user_list")
 
@@ -220,6 +222,7 @@ def user_toggle_active(request: HttpRequest, pk: int) -> HttpResponse:
     target.is_active = not target.is_active
     target.save(update_fields=["is_active"])
     etat = "activé" if target.is_active else "désactivé"
+    ActivityLog.log(request, ActivityLog.Action.USER_TOGGLE, f"{target.username} {etat}")
     messages.success(request, f"Utilisateur « {target.username} » {etat}.")
     return redirect("accounts:user_list")
 
@@ -238,5 +241,6 @@ def user_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
     username = target.username
     target.delete()
+    ActivityLog.log(request, ActivityLog.Action.USER_DELETE, f"Supprimé: {username}")
     messages.success(request, f"Utilisateur « {username} » supprimé définitivement.")
     return redirect("accounts:user_list")

@@ -300,3 +300,56 @@ class PtPLink(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name} ({self.site_a_id} ↔ {self.site_b_id})"
+
+
+class ActivityLog(models.Model):
+    """Journal d'activité — visible uniquement par les administrateurs."""
+
+    class Action(models.TextChoices):
+        LOGIN = "login", "Connexion"
+        LOGOUT = "logout", "Déconnexion"
+        USER_CREATE = "user_create", "Création utilisateur"
+        USER_EDIT = "user_edit", "Modification utilisateur"
+        USER_DELETE = "user_delete", "Suppression utilisateur"
+        USER_TOGGLE = "user_toggle", "Activation/Désactivation"
+        TICKET_GENERATE = "ticket_generate", "Génération tickets"
+        TICKET_SELL = "ticket_sell", "Vente ticket"
+        TICKET_ACTIVATE = "ticket_activate", "Activation ticket"
+        ABONNE_CREATE = "abonne_create", "Création abonné"
+        ABONNE_EDIT = "abonne_edit", "Modification abonné"
+        SETTINGS_CHANGE = "settings_change", "Modification paramètres"
+        OTHER = "other", "Autre"
+
+    user = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="activity_logs",
+        verbose_name="Utilisateur",
+    )
+    action = models.CharField("Action", max_length=30, choices=Action.choices)
+    detail = models.TextField("Détail", blank=True)
+    ip_address = models.GenericIPAddressField("Adresse IP", null=True, blank=True)
+    created_at = models.DateTimeField("Date", auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "log d'activité"
+        verbose_name_plural = "logs d'activité"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.get_action_display()} — {self.user} — {self.created_at:%d/%m/%Y %H:%M}"
+
+    @classmethod
+    def log(cls, request, action, detail=""):
+        """Raccourci pour créer une entrée de log."""
+        ip = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip()
+        if not ip:
+            ip = request.META.get("REMOTE_ADDR")
+        cls.objects.create(
+            user=request.user if request.user.is_authenticated else None,
+            action=action,
+            detail=detail,
+            ip_address=ip or None,
+        )
