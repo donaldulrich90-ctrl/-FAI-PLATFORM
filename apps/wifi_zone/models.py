@@ -625,3 +625,290 @@ class TicketConsommation(models.Model):
 
     def __str__(self) -> str:
         return f"{self.code} — activé le {self.activated_at:%d/%m/%Y %H:%M}"
+
+
+class LoyaltyProgress(models.Model):
+    """Progression du bonus par appareil, site et forfait exact."""
+
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
+        on_delete=models.CASCADE,
+        related_name="wifi_loyalty_progress",
+        null=True,
+        blank=True,
+        verbose_name="Organisation",
+    )
+    site = models.ForeignKey(
+        Site,
+        on_delete=models.CASCADE,
+        related_name="wifi_loyalty_progress",
+        verbose_name="Site",
+    )
+    mac_address = models.CharField("MAC du client", max_length=17, db_index=True)
+    duration = models.CharField("Durée", max_length=8, choices=Ticket.Duration.choices)
+    plan_price_xof = models.DecimalField(
+        "Prix du forfait (XOF)", max_digits=12, decimal_places=0, default=Decimal("0")
+    )
+    paid_count = models.PositiveSmallIntegerField("Progression (0 à 4)", default=0)
+    bonus_count = models.PositiveIntegerField("Bonus attribués", default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "progression fidélité Wi-Fi"
+        verbose_name_plural = "progressions fidélité Wi-Fi"
+        constraints = [
+            models.UniqueConstraint(
+                fields=("site", "mac_address", "duration", "plan_price_xof"),
+                name="uniq_loyalty_device_plan",
+            ),
+        ]
+        ordering = ["-updated_at"]
+
+    def __str__(self) -> str:
+        return f"{self.mac_address} — {self.duration}/{self.plan_price_xof} — {self.paid_count}/5"
+
+
+class LoyaltyPurchaseEvent(models.Model):
+    """Achat confirmé ayant compté une fois dans la fidélité."""
+
+    class PaymentMethod(models.TextChoices):
+        CASH = "cash", "Espèces"
+        MOBILE_MONEY = "mobile_money", "Mobile Money"
+        UNKNOWN = "unknown", "Non précisé"
+
+    progress = models.ForeignKey(
+        LoyaltyProgress,
+        on_delete=models.PROTECT,
+        related_name="purchase_events",
+        verbose_name="Progression",
+    )
+    source_ticket = models.OneToOneField(
+        Ticket,
+        on_delete=models.PROTECT,
+        related_name="loyalty_purchase_event",
+        verbose_name="Ticket payé",
+    )
+    payment_method = models.CharField(
+        "Moyen de paiement",
+        max_length=20,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.UNKNOWN,
+    )
+    bonus_ticket = models.OneToOneField(
+        Ticket,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="loyalty_bonus_event",
+        verbose_name="Ticket bonus",
+    )
+    client_celebrated_at = models.DateTimeField(
+        "Cadeau annoncé au client le",
+        null=True,
+        blank=True,
+        help_text="Renseigné quand l'animation de félicitations a été affichée au client.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "achat fidélité Wi-Fi"
+        verbose_name_plural = "achats fidélité Wi-Fi"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.source_ticket.code} — {self.progress.mac_address}"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAIEMENT MOBILE MONEY (portail captif → CinetPay) — achat de tickets en ligne
+# ══════════════════════════════════════════════════════════════════════════════
+import uuid  # noqa: E402
+
+
+class WifiZoneTarif(models.Model):
+    """Grille tarifaire officielle (source de vérité serveur) des forfaits Wi-Fi Zone.
+
+    Le portail captif affiche des prix, mais le serveur NE FAIT JAMAIS confiance
+    au prix envoyé par le client : le montant réellement facturé est toujours
+    relu ici, par site + durée. Un tarif « global » (site vide) sert de repli
+    pour toutes les zones qui n'ont pas de tarif spécifique.
+    """
+
+    site = models.ForeignKey(
+        Site,
+        on_delete=models.CASCADE,
+        related_name="wifi_zone_tarifs",
+        null=True,
+        blank=True,
+        verbose_name="Site (vide = tarif global toutes zones)",
+    )
+    duration = models.CharField("Durée", max_length=8, choices=Ticket.Duration.choices, db_index=True)
+    label = models.CharField(
+        "Libellé commercial",
+        max_length=64,
+        blank=True,
+        help_text="Ex. « Découverte », « Journée ». Facultatif.",
+    )
+    price_xof = models.DecimalField(
+        "Prix (XOF)",
+        max_digits=12,
+        decimal_places=0,
+        validators=[MinValueValidator(0)],
+        help_text="Franc CFA BCEAO. Doit être un multiple de 5 (contrainte Mobile Money).",
+    )
+    is_active = models.BooleanField("Actif", default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "tarif Wi-Fi Zone"
+        verbose_name_plural = "tarifs Wi-Fi Zone"
+        ordering = ["site_id", "price_xof"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=("site", "duration"),
+                name="uniq_wifi_tarif_site_duration",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        cible = self.site.site_id if self.site_id else "GLOBAL"
+        return f"{cible} · {self.get_duration_display()} · {self.price_xof} XOF"
+
+    @classmethod
+    def resolve_price(cls, site, duration) -> "Decimal | None":
+        """Prix officiel pour (site, durée). Spécifique au site sinon global. None si aucun."""
+        site_id = getattr(site, "pk", site)
+        specific = (
+            cls.objects.filter(site_id=site_id, duration=duration, is_active=True)
+            .values_list("price_xof", flat=True)
+            .first()
+        )
+        if specific is not None:
+            return specific
+        return (
+            cls.objects.filter(site__isnull=True, duration=duration, is_active=True)
+            .values_list("price_xof", flat=True)
+            .first()
+        )
+
+
+class WifiPurchase(models.Model):
+    """Transaction d'achat d'un ticket Wi-Fi Zone payée en Mobile Money via CinetPay.
+
+    Cycle de vie :
+        PENDING  → transaction créée en base (avant appel CinetPay)
+        AWAITING → guichet CinetPay ouvert, en attente du paiement du client
+        SUCCESS  → paiement confirmé, ticket créé + poussé sur le MikroTik du site
+        FAILED / CANCELLED / EXPIRED → paiement non abouti
+
+    La confirmation est IDEMPOTENTE : le webhook CinetPay et la page de retour
+    peuvent arriver plusieurs fois sans jamais créer deux tickets.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Créée"
+        AWAITING = "awaiting", "En attente de paiement"
+        SUCCESS = "success", "Payée"
+        FAILED = "failed", "Échouée"
+        CANCELLED = "cancelled", "Annulée"
+        EXPIRED = "expired", "Expirée"
+
+    class Provider(models.TextChoices):
+        ORANGE_MONEY = "orange_money", "Orange Money"
+        MOOV_MONEY = "moov_money", "Moov Money"
+        WAVE = "wave", "Wave"
+        TELECEL_MONEY = "telecel_money", "Telecel Money"
+        CARD = "card", "Carte bancaire"
+        UNKNOWN = "unknown", "Non précisé"
+
+    reference = models.CharField(
+        "Référence (transaction_id CinetPay)",
+        max_length=64,
+        unique=True,
+        db_index=True,
+        editable=False,
+    )
+    site = models.ForeignKey(
+        Site,
+        on_delete=models.PROTECT,
+        related_name="wifi_purchases",
+        verbose_name="Site / zone",
+    )
+    duration = models.CharField("Durée", max_length=8, choices=Ticket.Duration.choices)
+    amount_xof = models.DecimalField(
+        "Montant (XOF)",
+        max_digits=12,
+        decimal_places=0,
+        validators=[MinValueValidator(0)],
+    )
+    provider = models.CharField(
+        "Moyen de paiement",
+        max_length=20,
+        choices=Provider.choices,
+        default=Provider.UNKNOWN,
+    )
+    phone = models.CharField("Téléphone payeur", max_length=32, blank=True)
+    mac_address = models.CharField("MAC du client", max_length=17, blank=True)
+    client_ip = models.GenericIPAddressField("IP du client", null=True, blank=True)
+    login_url = models.CharField(
+        "URL de connexion hotspot",
+        max_length=512,
+        blank=True,
+        help_text="$(link-login-only) transmis par le portail captif du routeur.",
+    )
+    destination_url = models.CharField("Destination d'origine", max_length=512, blank=True)
+
+    status = models.CharField(
+        "Statut",
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    payment_token = models.CharField("Jeton CinetPay", max_length=128, blank=True)
+    payment_url = models.URLField("Guichet de paiement CinetPay", max_length=512, blank=True)
+    operator_id = models.CharField("Référence opérateur", max_length=128, blank=True)
+    ticket = models.ForeignKey(
+        Ticket,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="wifi_purchase",
+        verbose_name="Ticket délivré",
+    )
+    error_message = models.CharField("Dernier message d'erreur", max_length=512, blank=True)
+    raw_init = models.TextField("Réponse init CinetPay (debug)", blank=True)
+    raw_notify = models.TextField("Réponse check/notify CinetPay (debug)", blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    paid_at = models.DateTimeField("Payée le", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "achat Wi-Fi Zone (Mobile Money)"
+        verbose_name_plural = "achats Wi-Fi Zone (Mobile Money)"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.reference} — {self.get_status_display()} — {self.amount_xof} XOF"
+
+    @staticmethod
+    def generate_reference() -> str:
+        """Identifiant unique alphanumérique accepté par CinetPay (≤ 64 car.)."""
+        return "WZ" + uuid.uuid4().hex[:20].upper()
+
+    def save(self, *args, **kwargs):
+        if not self.reference:
+            self.reference = self.generate_reference()
+        super().save(*args, **kwargs)
+
+    @property
+    def is_final(self) -> bool:
+        return self.status in {
+            self.Status.SUCCESS,
+            self.Status.FAILED,
+            self.Status.CANCELLED,
+            self.Status.EXPIRED,
+        }

@@ -19,6 +19,29 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
+def _record_loyalty_safely(ticket, mac_address: str) -> None:
+    """Crédite la fidélité sans compromettre l'archive comptable en cas d'erreur."""
+    if not mac_address:
+        return
+    try:
+        from apps.wifi_zone.models import LoyaltyPurchaseEvent
+        from apps.wifi_zone.services.loyalty import record_confirmed_purchase
+
+        method = (
+            LoyaltyPurchaseEvent.PaymentMethod.CASH
+            if ticket.sold_by_id
+            else LoyaltyPurchaseEvent.PaymentMethod.UNKNOWN
+        )
+        with transaction.atomic():
+            record_confirmed_purchase(
+                ticket,
+                mac_address=mac_address,
+                payment_method=method,
+            )
+    except Exception:
+        logger.exception("Fidélité non créditée pour le ticket=%s", ticket.pk)
+
+
 def _entry_date_for(activated_at):
     """Date comptable (locale) pour une activation."""
     if activated_at is None:
@@ -46,6 +69,17 @@ def record_ticket_activation(
 
     existing = TicketConsommation.objects.filter(ticket=ticket).first()
     if existing is not None:
+        resolved_mac = (mac_address or existing.mac_address or "").strip()
+        tracking_updates = {}
+        if resolved_mac and not existing.mac_address:
+            tracking_updates["mac_address"] = resolved_mac
+            existing.mac_address = resolved_mac
+        if client_ip and not existing.client_ip:
+            tracking_updates["client_ip"] = client_ip
+            existing.client_ip = client_ip
+        if tracking_updates:
+            TicketConsommation.objects.filter(pk=existing.pk).update(**tracking_updates)
+        _record_loyalty_safely(ticket, resolved_mac)
         return existing
 
     activated_at = activated_at or ticket.first_used_at or ticket.used_at or timezone.now()
@@ -96,6 +130,7 @@ def record_ticket_activation(
         "Ticket %s activé : recette=%s XOF, expire=%s",
         ticket.code, amount, expires_at,
     )
+    _record_loyalty_safely(ticket, mac)
     return archive
 
 

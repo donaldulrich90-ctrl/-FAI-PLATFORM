@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#07111f">
+  <title>WiFi Zone Faso Équipements Store — Connexion</title>
+  <link rel="stylesheet" href="css/portal.css?v=films-1">
+</head>
+<body
+  data-payment-url="https://faestfai.duckdns.org/wifi/acheter/"
+  data-films-url="http://192.168.88.10/"
+  data-payment-mode="demo"
+  data-trial="$(trial)"
+  data-mac="$(mac)"
+  data-ip="$(ip)"
+  data-login-url="$(link-login-only)"
+  data-destination="$(link-orig)"
+  data-site-code="CENTRAL"
+>
+  <!-- ⚠️ PAR ROUTEUR : changez data-site-code ci-dessus selon la zone du MikroTik (ex. CENTRAL, SAABA, BOASSA, ZINIARE). Doit correspondre au site_id du Site dans Django. Passez data-payment-mode="live" une fois CinetPay validé. -->
+  <div class="page-shell">
+    <header class="topbar">
+      <a class="brand" href="#connexion" aria-label="WiFi Zone Faso Équipements Store, accueil">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 48 48" role="img">
+            <path d="M9 20c8-8 22-8 30 0M14 26c5.5-5.5 14.5-5.5 20 0M20 32c2.2-2.2 5.8-2.2 8 0"/>
+            <circle cx="24" cy="37" r="2.6"/>
+          </svg>
+        </span>
+        <span><strong>WiFi Zone</strong><small>FASO ÉQUIPEMENTS STORE</small></span>
+      </a>
+      <span class="network-state"><i></i> Réseau disponible</span>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <span class="eyebrow">INTERNET SIMPLE ET RAPIDE</span>
+          <h1 id="hero-title">Bienvenue sur WiFi Zone Faso Équipements Store</h1>
+          <p>Connectez-vous avec votre ticket ou achetez un forfait en quelques secondes.</p>
+          <div class="hero-points" aria-label="Avantages du service">
+            <span>⚡ Activation immédiate</span>
+            <span>🔒 Paiement sécurisé</span>
+            <span>☎ Assistance locale</span>
+          </div>
+        </div>
+
+        <div class="media-stage" aria-label="Actualités et offres WiFi Zone Faso Équipements Store">
+          <div class="slides" id="promoSlides">
+            <article class="slide is-active">
+              <img src="img/promo-fast.svg?v=brand-1" alt="Internet rapide WiFi Zone Faso Équipements Store" width="720" height="460">
+            </article>
+            <article class="slide">
+              <img src="img/promo-family.svg?v=brand-1" alt="Une connexion pour toute la famille" width="720" height="460" loading="lazy">
+            </article>
+            <article class="slide">
+              <img src="img/promo-support.svg?v=brand-1" alt="Assistance WiFi Zone Faso Équipements Store" width="720" height="460" loading="lazy">
+            </article>
+          </div>
+          <div class="slide-controls">
+            <button class="slide-arrow" type="button" data-slide="prev" aria-label="Visuel précédent">‹</button>
+            <div class="slide-dots" aria-label="Choisir un visuel">
+              <button class="is-active" type="button" data-slide-index="0" aria-label="Visuel 1"></button>
+              <button type="button" data-slide-index="1" aria-label="Visuel 2"></button>
+              <button type="button" data-slide-index="2" aria-label="Visuel 3"></button>
+            </div>
+            <button class="slide-arrow" type="button" data-slide="next" aria-label="Visuel suivant">›</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="access-card" id="connexion" aria-labelledby="access-title">
+        <div class="access-heading">
+          <div>
+            <span class="eyebrow">ACCÈS INTERNET</span>
+            <h2 id="access-title">Choisissez votre mode de connexion</h2>
+          </div>
+          <span class="secure-label">● Portail sécurisé</span>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="Mode de connexion">
+          <button class="tab is-active" id="ticket-tab" type="button" role="tab" aria-selected="true" aria-controls="ticket-panel" data-tab="ticket-panel">
+            <span class="tab-icon">▣</span> J’ai déjà un ticket
+          </button>
+          <button class="tab" id="buy-tab" type="button" role="tab" aria-selected="false" aria-controls="buy-panel" data-tab="buy-panel">
+            <span class="tab-icon">＋</span> Acheter un ticket
+          </button>
+          <button class="tab" id="media-tab" type="button" role="tab" aria-selected="false" aria-controls="media-panel" data-tab="media-panel">
+            <span class="tab-icon">▶</span> Films
+          </button>
+        </div>
+
+        <div class="test-mode" id="test-mode">
+          <strong>MODE TEST</strong>
+          <span>Aucun paiement ne sera débité pendant vos essais.</span>
+        </div>
+
+        <div class="alert" id="router-error" data-error="$(error)" role="alert" hidden>
+          <strong>Connexion impossible.</strong>
+          <span id="router-error-message"></span>
+        </div>
+
+        <form name="sendin" action="$(link-login-only)" method="post" class="hidden" aria-hidden="true">
+          <input type="hidden" name="username">
+          <input type="hidden" name="password">
+          <input type="hidden" name="dst" value="$(link-orig)">
+          <input type="hidden" name="popup" value="true">
+        </form>
+        <script src="md5.js"></script>
+
+        <div class="tab-panel is-active" id="ticket-panel" role="tabpanel" aria-labelledby="ticket-tab">
+          <form name="login" action="$(link-login-only)" method="post" onsubmit="return submitTicketLogin();" class="ticket-form">
+            <input type="hidden" name="dst" value="$(link-orig)">
+            <input type="hidden" name="popup" value="true">
+
+            <label for="ticket-code">Code du ticket</label>
+            <div class="input-wrap">
+              <span aria-hidden="true">#</span>
+              <input id="ticket-code" name="username" type="text" inputmode="text" autocomplete="username" autocapitalize="characters" placeholder="Ex. FST-4829-AB" required>
+            </div>
+            <input id="ticket-password" name="password" type="hidden">
+            <p class="field-help">Le code se trouve sur le ticket imprimé ou reçu après paiement.</p>
+
+            <button class="primary-button" type="submit">Se connecter maintenant <span>→</span></button>
+
+            <a class="trial-link" id="trial-link" href="$(link-login-only)?dst=$(link-orig-esc)&amp;username=T-$(mac-esc)" hidden>Essayer gratuitement</a>
+          </form>
+        </div>
+
+        <div class="tab-panel" id="buy-panel" role="tabpanel" aria-labelledby="buy-tab" hidden>
+          <form id="payment-form" class="payment-form">
+            <fieldset>
+              <legend>1. Choisissez votre forfait</legend>
+              <div class="plans">
+                <label class="plan">
+                  <input type="radio" name="plan" value="3h" data-label="3 heures" data-price="100" checked>
+                  <span><small>Découverte</small><strong>3 heures</strong><b>100 F</b></span>
+                </label>
+                <label class="plan">
+                  <input type="radio" name="plan" value="1d" data-label="24 heures" data-price="200">
+                  <span><small>Journée</small><strong>24 heures</strong><b>200 F</b></span>
+                </label>
+                <label class="plan">
+                  <input type="radio" name="plan" value="5j" data-label="5 jours" data-price="500">
+                  <span><small>Séjour</small><strong>5 jours</strong><b>500 F</b></span>
+                </label>
+                <label class="plan">
+                  <input type="radio" name="plan" value="1w" data-label="7 jours" data-price="700">
+                  <span><small>Semaine</small><strong>7 jours</strong><b>700 F</b></span>
+                </label>
+                <label class="plan">
+                  <input type="radio" name="plan" value="30j" data-label="30 jours" data-price="2500">
+                  <span><small>Mensuel</small><strong>30 jours</strong><b>2 500 F</b></span>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend id="payment-phone-label">2. Numéro de paiement</legend>
+              <div class="input-wrap">
+                <span aria-hidden="true">+226</span>
+                <input id="payment-phone" name="phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="11" placeholder="70 00 00 00" required>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>3. Moyen de paiement</legend>
+              <div class="wallets">
+                <label class="wallet wallet-orange">
+                  <input type="radio" name="provider" value="orange_money" checked>
+                  <span><i>OM</i><strong>Orange Money</strong></span>
+                </label>
+                <label class="wallet wallet-moov">
+                  <input type="radio" name="provider" value="moov_money">
+                  <span><i>MM</i><strong>Moov Money</strong></span>
+                </label>
+                <label class="wallet wallet-wave">
+                  <input type="radio" name="provider" value="wave">
+                  <span><i>W</i><strong>Wave</strong></span>
+                </label>
+                <label class="wallet wallet-telecel">
+                  <input type="radio" name="provider" value="telecel_money">
+                  <span><i>TM</i><strong>Telecel Money</strong></span>
+                </label>
+                <label class="wallet wallet-cash">
+                  <input type="radio" name="provider" value="cash">
+                  <span><i>FC</i><strong>Espèces (vendeur)</strong></span>
+                </label>
+              </div>
+            </fieldset>
+
+            <section class="loyalty-card" aria-labelledby="loyalty-title">
+              <div class="loyalty-icon" aria-hidden="true">★</div>
+              <div class="loyalty-content">
+                <div class="loyalty-heading">
+                  <div>
+                    <strong id="loyalty-title">Votre 6e ticket est offert</strong>
+                    <p>Après 5 tickets payés du même forfait sur cet appareil, recevez 1 ticket bonus identique.</p>
+                  </div>
+                  <b id="loyalty-count">0/5</b>
+                </div>
+                <div class="loyalty-steps" id="loyalty-steps" aria-label="Progression du bonus">
+                  <i></i><i></i><i></i><i></i><i></i>
+                </div>
+                <small id="loyalty-device">Appareil identifié automatiquement par le MikroTik.</small>
+                <small id="loyalty-status">0 achat sur 5 pour le forfait sélectionné.</small>
+                <button class="loyalty-reset" id="loyalty-reset" type="button">Réinitialiser le test bonus</button>
+              </div>
+            </section>
+
+            <div class="order-summary">
+              <span>Total à payer</span>
+              <strong id="payment-total">100 F CFA</strong>
+            </div>
+            <button class="primary-button" type="submit">Payer et recevoir mon ticket <span>→</span></button>
+            <p class="payment-note">Les forfaits différents ne s’additionnent pas. Un paiement en espèces compte seulement après validation du vendeur.</p>
+          </form>
+        </div>
+
+        <div class="tab-panel media-panel" id="media-panel" role="tabpanel" aria-labelledby="media-tab" hidden>
+          <div class="media-library-heading">
+            <div>
+              <span class="eyebrow">ESPACE ABONNÉS</span>
+              <h3>Films pour nos abonnés</h3>
+            </div>
+            <span class="media-local-badge">● Ticket actif requis</span>
+          </div>
+          <div class="media-library">
+            <div class="media-viewer" id="media-viewer" aria-live="polite"></div>
+            <div class="media-list" id="media-list" aria-label="Choisir un média"></div>
+          </div>
+          <a class="films-access-button" id="films-access-link" href="films.html">Accéder au catalogue de films <span>→</span></a>
+          <p class="media-note">Le catalogue test est disponible maintenant. La lecture réelle sera autorisée par le futur serveur uniquement si le ticket de l’abonné est actif.</p>
+        </div>
+
+        <div class="demo-result" id="demo-result" role="status" aria-live="polite" hidden>
+          <div class="demo-check" aria-hidden="true">✓</div>
+          <div>
+            <strong id="demo-title">Test réussi</strong>
+            <p id="demo-message"></p>
+          </div>
+          <button type="button" id="demo-close" aria-label="Fermer le résultat du test">×</button>
+        </div>
+      </section>
+
+      <section class="help-strip" aria-label="Aide et assistance">
+        <div><span>?</span><p><strong>Besoin d’aide ?</strong><br>Contactez l’assistance du point Wi-Fi.</p></div>
+        <a href="tel:+22600000000">Appeler l’assistance</a>
+      </section>
+    </main>
+
+    <footer>
+      <span>© WiFi Zone Faso Équipements Store</span>
+      <span>Connexion sécurisée · Conditions d’utilisation</span>
+    </footer>
+  </div>
+
+  <script>
+    function submitTicketLogin() {
+      var form = document.forms.login;
+      var code = form.username.value.trim();
+      if (!code) return false;
+      form.username.value = code;
+      form.password.value = code;
+
+      var loginUrl = document.body.getAttribute('data-login-url') || '';
+      var chapId = '$(chap-id)';
+      var chapChallenge = '$(chap-challenge)';
+      var isLocalPreview = loginUrl.indexOf('$(') !== -1;
+
+      if (isLocalPreview) {
+        if (window.showDemoResult) {
+          window.showDemoResult(
+            'Formulaire de ticket validé',
+            'Le code « ' + code + ' » est prêt. La vérification réelle du ticket se fera sur le MikroTik.'
+          );
+        }
+        return false;
+      }
+
+      if (chapId && chapId.indexOf('$(') === -1 && typeof hexMD5 === 'function' && document.sendin) {
+        document.sendin.username.value = code;
+        document.sendin.password.value = hexMD5(chapId + code + chapChallenge);
+        document.sendin.submit();
+        return false;
+      }
+      return true;
+    }
+  </script>
+  <script src="js/loyalty-core.js"></script>
+  <script src="js/media-config.js?v=media-1"></script>
+  <script src="js/portal.js?v=films-1"></script>
+</body>
+</html>

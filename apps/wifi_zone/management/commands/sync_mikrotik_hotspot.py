@@ -41,7 +41,7 @@ class Command(BaseCommand):
         from apps.core.models import NetworkDevice
         from apps.wifi_zone.models import Ticket
         from apps.wifi_zone.router_control import (
-            fetch_mikrotik_hotspot_active_users,
+            fetch_mikrotik_hotspot_active_details,
             fetch_mikrotik_hotspot_all_users,
         )
         from apps.wifi_zone.services.ticket_activation import (
@@ -77,7 +77,11 @@ class Command(BaseCommand):
             )
 
             # 1. Utilisateurs actuellement connectés
-            active_users = fetch_mikrotik_hotspot_active_users(device)
+            active_details = fetch_mikrotik_hotspot_active_details(device)
+            active_by_user = {
+                row.get("user", ""): row for row in active_details if row.get("user")
+            }
+            active_users = set(active_by_user)
             self.stdout.write(f"  Sessions actives sur le routeur : {len(active_users)}")
 
             # 2. Tous les utilisateurs provisionnés
@@ -102,11 +106,20 @@ class Command(BaseCommand):
                     )
                     if not dry_run:
                         ticket_now = timezone.now()
+                        session = active_by_user.get(code, {})
+                        mac_address = session.get("mac-address") or None
+                        client_ip = session.get("address") or None
+                        tracking = {}
+                        if mac_address:
+                            tracking["mac_address"] = mac_address
+                        if client_ip:
+                            tracking["client_ip"] = client_ip
                         Ticket.objects.filter(pk=ticket.pk).update(
                             status=Ticket.Status.USED,
                             is_used=True,
                             hotspot_synced_at=ticket_now,
                             hotspot_sync_error="",
+                            **tracking,
                         )
                         # Estampille used_at / first_used_at si pas déjà renseignés
                         Ticket.objects.filter(pk=ticket.pk, used_at__isnull=True).update(
@@ -117,8 +130,32 @@ class Command(BaseCommand):
                         ).update(first_used_at=ticket_now)
                         # Recette + archive-preuve (idempotent) sur l'objet complet
                         full_ticket = Ticket.objects.get(pk=ticket.pk)
-                        record_ticket_activation(full_ticket, activated_at=ticket_now)
+                        record_ticket_activation(
+                            full_ticket,
+                            activated_at=ticket_now,
+                            mac_address=mac_address,
+                            client_ip=client_ip,
+                        )
                     total_synced += 1
+
+                elif is_active and ticket.status == Ticket.Status.USED:
+                    # Une activation plus ancienne peut ne pas encore avoir sa MAC.
+                    # Rejouer l'archive est sans danger et crédite la fidélité une seule fois.
+                    if not dry_run:
+                        session = active_by_user.get(code, {})
+                        mac_address = session.get("mac-address") or None
+                        client_ip = session.get("address") or None
+                        if mac_address:
+                            tracking = {"mac_address": mac_address}
+                            if client_ip:
+                                tracking["client_ip"] = client_ip
+                            Ticket.objects.filter(pk=ticket.pk).update(**tracking)
+                            full_ticket = Ticket.objects.get(pk=ticket.pk)
+                            record_ticket_activation(
+                                full_ticket,
+                                mac_address=mac_address,
+                                client_ip=client_ip,
+                            )
 
                 elif is_provisioned and not is_active and ticket.hotspot_synced_at is None:
                     # Provisionné mais pas de session active — mettre à jour synced_at

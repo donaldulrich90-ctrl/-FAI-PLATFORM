@@ -249,3 +249,12 @@ FREQUENCY_MIN_SNR = int(os.environ.get("FREQUENCY_MIN_SNR", "15"))
 FREQUENCY_MIN_SIGNAL = int(os.environ.get("FREQUENCY_MIN_SIGNAL", "-75"))
 FREQUENCY_CHANGE_COOLDOWN_MINUTES = int(os.environ.get("FREQUENCY_CHANGE_COOLDOWN_MINUTES", "15"))
 FREQUENCY_MAX_CHANGES_PER_HOUR = int(os.environ.get("FREQUENCY_MAX_CHANGES_PER_HOUR", "3"))
+
+
+# ── Paiement en ligne des tickets Wi-Fi Zone (portail captif → CinetPay) ──
+# Réutilise les identifiants CINETPAY_* ci-dessus. URL publique de base du site,
+# utilisée pour construire les URL de notification/retour envoyées à CinetPay
+# (doit être joignable depuis Internet). Vide = déduite de la requête entrante.
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "")
+# Base de l'API CinetPay (ne changez que pour un environnement dédié).
+CINETPAY_API_BASE = os.environ.get("CINETPAY_API_BASE", "https://api-checkout.cinetpay.com/v2")

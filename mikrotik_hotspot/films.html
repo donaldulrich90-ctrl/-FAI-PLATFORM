@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#07111f">
+  <title>Films abonnés — WiFi Zone Faso Équipements Store</title>
+  <link rel="stylesheet" href="css/films.css?v=films-3">
+</head>
+<body>
+  <header class="films-topbar">
+    <a class="films-brand" href="login.html"><span>⌁</span><strong>WiFi Zone</strong><small>FASO ÉQUIPEMENTS STORE</small></a>
+    <a class="back-link" href="login.html">← Retour à la connexion</a>
+  </header>
+
+  <main class="films-shell">
+    <section class="films-intro">
+      <div>
+        <span class="eyebrow">ESPACE FILMS ABONNÉS</span>
+        <h1>Votre cinéma local</h1>
+        <p>Choisissez une catégorie, puis un film à regarder. Lecture en streaming sur le réseau Wi-Fi local.</p>
+      </div>
+      <span class="demo-badge">TICKET ACTIF</span>
+    </section>
+
+    <nav class="film-categories" id="filmCategories" aria-label="Catégories de films"></nav>
+
+    <section class="film-grid" id="filmGrid" aria-label="Catalogue de films"></section>
+    <p class="film-empty" id="filmEmpty" hidden>Aucun film dans cette catégorie pour le moment.</p>
+  </main>
+
+  <!-- Lecteur vidéo -->
+  <div class="player-overlay" id="playerOverlay" hidden>
+    <div class="player-box" role="dialog" aria-modal="true" aria-labelledby="playerTitle">
+      <div class="player-head">
+        <strong id="playerTitle">Film</strong>
+        <button type="button" id="playerClose" aria-label="Fermer">×</button>
+      </div>
+      <video id="playerVideo" controls playsinline preload="metadata"></video>
+      <p class="player-error" id="playerError" hidden>Lecture impossible. Vérifiez que le serveur de films est allumé et que votre ticket est actif.</p>
+    </div>
+  </div>
+
+  <script src="js/films-config.js?v=films-3"></script>
+  <script>
+    (function () {
+      "use strict";
+      var films = (window.WifiZoneFilms || []).filter(function (f) { return f.enabled !== false; });
+      var grid = document.getElementById("filmGrid");
+      var catBar = document.getElementById("filmCategories");
+      var empty = document.getElementById("filmEmpty");
+      var posterClasses = ["poster-one", "poster-two", "poster-three"];
+      var current = "Tous";
+
+      // Lecteur
+      var overlay = document.getElementById("playerOverlay");
+      var video = document.getElementById("playerVideo");
+      var playerTitle = document.getElementById("playerTitle");
+      var playerError = document.getElementById("playerError");
+
+      var cats = [];
+      films.forEach(function (f) {
+        var c = (f.category || "Autres").trim();
+        if (cats.indexOf(c) === -1) cats.push(c);
+      });
+
+      function countIn(cat) {
+        return films.filter(function (f) { return (f.category || "Autres") === cat; }).length;
+      }
+
+      function makeButton(label) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "film-cat-btn" + (label === current ? " is-active" : "");
+        b.textContent = label + (label === "Tous" ? "" : " (" + countIn(label) + ")");
+        b.dataset.cat = label;
+        b.addEventListener("click", function () {
+          current = label;
+          Array.prototype.forEach.call(catBar.children, function (el) {
+            el.classList.toggle("is-active", el.dataset.cat === current);
+          });
+          render();
+        });
+        return b;
+      }
+
+      function buildBar() {
+        catBar.appendChild(makeButton("Tous"));
+        cats.forEach(function (c) { catBar.appendChild(makeButton(c)); });
+      }
+
+      function openPlayer(f) {
+        if (!f.src) return;
+        playerTitle.textContent = f.title || "Film";
+        playerError.hidden = true;
+        video.src = f.src;
+        overlay.hidden = false;
+        document.body.style.overflow = "hidden";
+        var p = video.play();
+        if (p && p.catch) { p.catch(function () {}); }
+      }
+
+      function closePlayer() {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+        overlay.hidden = true;
+        document.body.style.overflow = "";
+      }
+
+      document.getElementById("playerClose").addEventListener("click", closePlayer);
+      overlay.addEventListener("click", function (e) { if (e.target === overlay) closePlayer(); });
+      document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !overlay.hidden) closePlayer(); });
+      video.addEventListener("error", function () { playerError.hidden = false; });
+
+      function card(f, i) {
+        var art = document.createElement("article");
+        art.className = "film-card";
+        var poster;
+        if (f.poster) {
+          poster = '<div class="film-poster has-img" style="background-image:url(\'' + f.poster + '\')"><span>▶</span></div>';
+        } else {
+          poster = '<div class="film-poster ' + posterClasses[i % posterClasses.length] + '"><span>▶</span><b>Votre affiche</b></div>';
+        }
+        var meta = (f.category || "Autres") + (f.duree ? " · " + f.duree : "");
+        var playable = !!f.src;
+        var btn = playable
+          ? '<button type="button" class="play-btn">▶ Regarder</button>'
+          : '<button type="button" disabled>Bientôt disponible</button>';
+        art.innerHTML =
+          poster +
+          '<div class="film-info">' +
+            '<small>' + meta + '</small>' +
+            '<h2>' + (f.title || "Sans titre") + '</h2>' +
+            '<p>' + (f.description || "") + '</p>' +
+            btn +
+          '</div>';
+        if (playable) {
+          var openIt = function () { openPlayer(f); };
+          art.querySelector(".play-btn").addEventListener("click", openIt);
+          art.querySelector(".film-poster").addEventListener("click", openIt);
+          art.querySelector(".film-poster").style.cursor = "pointer";
+        }
+        return art;
+      }
+
+      function render() {
+        grid.innerHTML = "";
+        var list = films.filter(function (f) {
+          return current === "Tous" || (f.category || "Autres") === current;
+        });
+        empty.hidden = list.length > 0;
+        list.forEach(function (f, i) { grid.appendChild(card(f, i)); });
+      }
+
+      buildBar();
+      render();
+    })();
+  </script>
+</body>
+</html>

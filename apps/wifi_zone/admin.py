@@ -5,12 +5,47 @@ from django.utils.html import format_html
 from apps.tenants.admin_mixins import TenantScopedFKAdminMixin, TenantScopedSiteFKAdminMixin
 
 from .models import (
+    LoyaltyProgress,
+    LoyaltyPurchaseEvent,
     PlanAbonnement,
     Ticket,
     TicketConsommation,
     WifiTicketBatch,
     WiFiSimpleSubscriber,
 )
+
+
+@admin.register(LoyaltyProgress)
+class LoyaltyProgressAdmin(admin.ModelAdmin):
+    list_display = (
+        "mac_address", "duration", "plan_price_xof", "paid_count", "bonus_count", "site", "updated_at"
+    )
+    list_filter = ("duration", "site")
+    search_fields = ("mac_address",)
+    readonly_fields = (
+        "tenant", "site", "mac_address", "duration", "plan_price_xof",
+        "paid_count", "bonus_count", "created_at", "updated_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(LoyaltyPurchaseEvent)
+class LoyaltyPurchaseEventAdmin(admin.ModelAdmin):
+    list_display = ("source_ticket", "payment_method", "bonus_ticket", "progress", "created_at")
+    list_filter = ("payment_method", "created_at")
+    search_fields = ("source_ticket__code", "bonus_ticket__code", "progress__mac_address")
+    readonly_fields = ("progress", "source_ticket", "payment_method", "bonus_ticket", "created_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(PlanAbonnement)
@@ -134,3 +169,42 @@ class WiFiSimpleSubscriberAdmin(TenantScopedFKAdminMixin, TenantScopedSiteFKAdmi
     @admin.display(description="Prix/mois", ordering="plan__price_xof")
     def plan_prix(self, obj):
         return f"{int(obj.plan.price_xof)} XOF" if obj.plan else "—"
+
+
+# ── Paiement Mobile Money en ligne ────────────────────────────────────────────
+from .models import WifiPurchase, WifiZoneTarif  # noqa: E402
+
+
+@admin.register(WifiZoneTarif)
+class WifiZoneTarifAdmin(admin.ModelAdmin):
+    list_display = ("__str__", "site", "duration", "label", "price_xof", "is_active", "updated_at")
+    list_filter = ("is_active", "duration", "site")
+    list_editable = ("price_xof", "is_active")
+    search_fields = ("label",)
+    fieldsets = (
+        (None, {"fields": ("site", "duration", "label")}),
+        ("Tarif", {"fields": ("price_xof", "is_active")}),
+    )
+
+
+@admin.register(WifiPurchase)
+class WifiPurchaseAdmin(admin.ModelAdmin):
+    list_display = (
+        "reference", "site", "duration", "amount_xof", "provider",
+        "status", "phone", "ticket", "created_at", "paid_at",
+    )
+    list_filter = ("status", "provider", "site", "duration", "created_at")
+    search_fields = ("reference", "phone", "mac_address", "operator_id", "ticket__code")
+    date_hierarchy = "created_at"
+    readonly_fields = (
+        "reference", "site", "duration", "amount_xof", "provider", "phone",
+        "mac_address", "client_ip", "login_url", "destination_url", "status",
+        "payment_token", "payment_url", "operator_id", "ticket", "error_message",
+        "raw_init", "raw_notify", "created_at", "updated_at", "paid_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

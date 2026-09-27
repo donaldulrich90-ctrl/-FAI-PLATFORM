@@ -37,7 +37,7 @@ SCHEDULES = [
         "name": "Synchronisation hotspot MikroTik",
         "func": "apps.wifi_zone.tasks.sync_mikrotik_hotspot",
         "schedule_type": "C",
-        "cron": "*/30 * * * *",  # toutes les 30 minutes
+        "cron": "*/2 * * * *",  # toutes les 2 min : activation, recette et bonus fidélité quasi temps réel
         "repeats": -1,
     },
     {

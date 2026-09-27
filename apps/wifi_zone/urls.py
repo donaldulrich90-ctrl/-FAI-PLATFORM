@@ -60,3 +60,14 @@ urlpatterns = [
     path('api/ticket/<str:code>/ban/', views.api_ticket_ban, name='api-ticket-ban'),
     path('api/ticket/<str:code>/disconnect/', views.api_ticket_disconnect, name='api-ticket-disconnect'),
 ]
+
+# ── Paiement Mobile Money en ligne (portail captif → CinetPay) — PUBLIC ────────
+# Volontairement SANS décorateur de permission : appelées par des clients Wi-Fi
+# non authentifiés et par le webhook CinetPay.
+urlpatterns += [
+    path("acheter/", views.wifi_acheter, name="acheter"),
+    path("paiement/retour/", views.wifi_paiement_retour, name="paiement_retour"),
+    path("paiement/notify/", views.wifi_paiement_notify, name="paiement_notify"),
+    path("paiement/statut/", views.wifi_paiement_statut, name="paiement_statut"),
+    path("bonus/", views.wifi_bonus_check, name="bonus_check"),
+]

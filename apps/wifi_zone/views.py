@@ -2185,3 +2185,435 @@ def api_ticket_disconnect(request: HttpRequest, code: str) -> JsonResponse:
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)[:500]})
 
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAIEMENT MOBILE MONEY EN LIGNE (portail captif → CinetPay) — vues PUBLIQUES
+# Aucune de ces vues n'exige d'authentification : elles sont appelées par les
+# clients Wi-Fi (non connectés) et par le webhook CinetPay.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _client_ip(request: HttpRequest) -> str | None:
+    xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR") or None
+
+
+def _absolute_url(request: HttpRequest, path: str) -> str:
+    base = (getattr(settings, "PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
+    if base:
+        return f"{base}{path}"
+    return request.build_absolute_uri(path)
+
+
+def _param(request: HttpRequest, name: str, default: str = "") -> str:
+    if request.method == "POST":
+        return (request.POST.get(name) or request.GET.get(name) or default).strip()
+    return (request.GET.get(name) or default).strip()
+
+
+def _paiement_page(*, title: str, heading: str, body_html: str, accent: str = "#24c7e8") -> HttpResponse:
+    """Page de statut autonome (mobile-first), aux couleurs du portail captif."""
+    from django.utils.html import escape
+
+    html = f"""<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07111f"><title>{escape(title)}</title>
+<style>
+:root{{color-scheme:dark}}*{{box-sizing:border-box}}
+body{{margin:0;min-height:100dvh;display:grid;place-items:center;padding:20px;
+ font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:#f7f9fc;
+ background:radial-gradient(circle at 15% 10%,rgba(36,199,232,.10),transparent 26rem),
+ radial-gradient(circle at 85% 15%,rgba(242,180,22,.09),transparent 24rem),#07111f}}
+.card{{width:min(440px,100%);padding:28px 24px;background:rgba(16,28,45,.94);
+ border:1px solid rgba(159,179,203,.16);border-radius:24px;
+ box-shadow:0 22px 70px rgba(0,0,0,.32);text-align:center}}
+.badge{{width:64px;height:64px;margin:0 auto 16px;display:grid;place-items:center;
+ border-radius:50%;font-size:1.9rem;font-weight:900;color:#07111f;background:{accent}}}
+h1{{margin:0 0 8px;font-size:1.35rem;letter-spacing:-.02em}}
+p{{margin:0 0 14px;color:#b2c0d1;font-size:.94rem;line-height:1.5}}
+.code{{margin:18px 0;padding:16px;background:#0a1524;border:1px dashed {accent};
+ border-radius:14px;font-size:2rem;font-weight:900;letter-spacing:.12em;color:#fff}}
+.btn{{display:block;width:100%;min-height:52px;margin-top:14px;padding:14px;
+ color:#10151c;background:linear-gradient(135deg,#ffcb3f,#e59900);border:0;border-radius:13px;
+ font-weight:850;font-size:1rem;text-decoration:none;cursor:pointer}}
+.muted{{color:#9aabc0;font-size:.8rem;margin-top:16px}}
+.spin{{width:52px;height:52px;margin:0 auto 16px;border-radius:50%;
+ border:5px solid rgba(255,255,255,.14);border-top-color:{accent};animation:s 1s linear infinite}}
+@keyframes s{{to{{transform:rotate(360deg)}}}}
+</style></head><body><div class="card">{body_html}</div></body></html>"""
+    return HttpResponse(html)
+
+
+@csrf_exempt
+def wifi_acheter(request: HttpRequest) -> HttpResponse:
+    """Point d'entrée d'achat depuis le portail captif : crée la transaction et
+    redirige le client vers le guichet CinetPay. Fonctionne pour TOUTES les zones
+    grâce au paramètre `site_code` (le code du Site, ex. SAABA) fourni par le
+    login.html du routeur.
+    """
+    from django.utils.html import escape
+    from .models import Ticket, WifiPurchase
+    from .services import purchase as purchase_svc
+    from .services.payments.cinetpay import CinetPayError, is_configured
+
+    site_code = _param(request, "site_code")
+    duration = _param(request, "plan") or _param(request, "duration")
+    provider = _param(request, "provider", "unknown")
+    phone = _param(request, "phone")
+    mac = _param(request, "mac")
+    ip = _param(request, "ip") or _client_ip(request)
+    login_url = _param(request, "login_url")
+    destination = _param(request, "destination")
+
+    def erreur(message: str) -> HttpResponse:
+        retry = (
+            f'<a class="btn" href="{escape(login_url)}">Retour au Wi-Fi</a>' if login_url else ""
+        )
+        return _paiement_page(
+            title="Paiement impossible",
+            heading="",
+            accent="#ff6b72",
+            body_html=(
+                '<div class="badge" style="background:#ff6b72">!</div>'
+                "<h1>Paiement impossible</h1>"
+                f"<p>{escape(message)}</p>{retry}"
+            ),
+        )
+
+    if not is_configured():
+        return erreur("Le paiement en ligne n'est pas encore activé. Contactez l'assistance.")
+
+    site = purchase_svc.resolve_site_by_code(site_code)
+    if site is None:
+        return erreur(
+            "Zone Wi-Fi non reconnue (site_code manquant ou inconnu). "
+            "Vérifiez la configuration du portail de ce routeur."
+        )
+
+    if duration not in set(Ticket.Duration.values):
+        return erreur("Forfait invalide.")
+
+    price = purchase_svc.resolve_price(site, duration)
+    if price is None or price <= 0:
+        return erreur("Aucun tarif configuré pour ce forfait sur cette zone.")
+
+    purchase = purchase_svc.create_pending_purchase(
+        site=site,
+        duration=duration,
+        amount=price,
+        provider=provider,
+        phone=phone,
+        mac_address=mac,
+        client_ip=ip,
+        login_url=login_url,
+        destination_url=destination,
+    )
+
+    notify_url = _absolute_url(request, "/wifi/paiement/notify/")
+    return_url = _absolute_url(request, f"/wifi/paiement/retour/?ref={purchase.reference}")
+    try:
+        payment_url = purchase_svc.start_checkout(
+            purchase, notify_url=notify_url, return_url=return_url
+        )
+    except CinetPayError as exc:
+        purchase_svc.mark_failed(purchase, status=WifiPurchase.Status.FAILED, reason=str(exc))
+        return erreur(f"Ouverture du paiement impossible : {exc}")
+
+    return redirect(payment_url)
+
+
+@csrf_exempt
+def wifi_paiement_notify(request: HttpRequest) -> HttpResponse:
+    """Webhook CinetPay (server-to-server). On ne fait pas confiance au corps :
+    on relit le statut via l'API CHECK, puis on finalise. Toujours 200 pour
+    éviter les renvois inutiles."""
+    from .models import WifiPurchase
+    from .services import purchase as purchase_svc
+
+    ref = (
+        request.POST.get("cpm_trans_id")
+        or request.POST.get("transaction_id")
+        or request.GET.get("cpm_trans_id")
+        or request.GET.get("transaction_id")
+        or ""
+    ).strip()
+    if not ref:
+        return HttpResponse("missing transaction_id", status=200)
+
+    purchase = WifiPurchase.objects.filter(reference=ref).first()
+    if purchase is None:
+        return HttpResponse("unknown transaction", status=200)
+
+    try:
+        purchase_svc.refresh_from_cinetpay(purchase)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Webhook CinetPay : échec ref=%s", ref)
+        return HttpResponse("error", status=200)
+
+    return HttpResponse("OK", status=200)
+
+
+def wifi_paiement_statut(request: HttpRequest) -> JsonResponse:
+    """Statut JSON d'une transaction (interrogé par la page de retour).
+    Fait avancer l'état en interrogeant CinetPay tant que non finalisé."""
+    from .models import WifiPurchase
+    from .services import purchase as purchase_svc
+
+    ref = (request.GET.get("ref") or "").strip()
+    purchase = WifiPurchase.objects.filter(reference=ref).select_related("ticket").first()
+    if purchase is None:
+        return JsonResponse({"ok": False, "error": "unknown"}, status=404)
+
+    if not purchase.is_final:
+        try:
+            purchase_svc.refresh_from_cinetpay(purchase)
+            purchase.refresh_from_db()
+        except Exception:
+            pass
+
+    code = purchase.ticket.code if (purchase.status == WifiPurchase.Status.SUCCESS and purchase.ticket_id) else ""
+    synced = bool(purchase.ticket and purchase.ticket.hotspot_synced_at) if purchase.ticket_id else False
+    return JsonResponse({
+        "ok": True,
+        "status": purchase.status,
+        "code": code,
+        "synced": synced,
+    })
+
+
+@csrf_exempt
+def wifi_paiement_retour(request: HttpRequest) -> HttpResponse:
+    """Page de retour après le guichet CinetPay : affiche le code du ticket
+    (succès), une attente auto-rafraîchie (en cours) ou un message d'échec."""
+    from django.utils.html import escape
+    from .models import WifiPurchase
+    from .services import purchase as purchase_svc
+
+    ref = (request.GET.get("ref") or request.POST.get("cpm_trans_id") or "").strip()
+    purchase = WifiPurchase.objects.filter(reference=ref).select_related("ticket", "site").first()
+    if purchase is None:
+        return _paiement_page(
+            title="Transaction introuvable", heading="", accent="#ff6b72",
+            body_html='<div class="badge" style="background:#ff6b72">!</div>'
+                      "<h1>Transaction introuvable</h1><p>Référence inconnue.</p>",
+        )
+
+    if not purchase.is_final:
+        try:
+            purchase_svc.refresh_from_cinetpay(purchase)
+            purchase.refresh_from_db()
+        except Exception:
+            pass
+
+    login_url = purchase.login_url or ""
+    statut_url = _absolute_url(request, f"/wifi/paiement/statut/?ref={escape(ref)}")
+
+    if purchase.status == WifiPurchase.Status.SUCCESS and purchase.ticket_id:
+        code = purchase.ticket.code
+        connect_btn = (
+            f'<a class="btn" href="{escape(login_url)}">Se connecter au Wi-Fi</a>'
+            if login_url else ""
+        )
+        sync_note = "" if purchase.ticket.hotspot_synced_at else (
+            '<p class="muted">Activation du code sur le réseau en cours '
+            "(quelques secondes). Réessayez la connexion si besoin.</p>"
+        )
+        celebration = _maybe_bonus_celebration(purchase, login_url)
+        return _paiement_page(
+            title="Paiement réussi",
+            heading="",
+            accent="#31d58b",
+            body_html=(
+                '<div class="badge" style="background:#31d58b">✓</div>'
+                "<h1>Paiement réussi</h1>"
+                "<p>Voici votre code de connexion Wi-Fi. Notez-le.</p>"
+                f'<div class="code">{escape(code)}</div>'
+                f"{connect_btn}{sync_note}{celebration}"
+            ),
+        )
+
+    if purchase.status in {WifiPurchase.Status.FAILED, WifiPurchase.Status.CANCELLED, WifiPurchase.Status.EXPIRED}:
+        retry = f'<a class="btn" href="{escape(login_url)}">Réessayer</a>' if login_url else ""
+        return _paiement_page(
+            title="Paiement non abouti", heading="", accent="#ff6b72",
+            body_html=('<div class="badge" style="background:#ff6b72">✕</div>'
+                       "<h1>Paiement non abouti</h1>"
+                       f"<p>{escape(purchase.error_message or 'Le paiement n’a pas été confirmé.')}</p>{retry}"),
+        )
+
+    # En attente : auto-rafraîchissement via polling JSON.
+    poll = f"""
+<div class="spin"></div><h1>Paiement en cours…</h1>
+<p>Validez le paiement sur votre téléphone. Cette page se met à jour automatiquement.</p>
+<p class="muted">Ne fermez pas cette page.</p>
+<script>
+(function(){{
+  var url="{statut_url}";
+  function tick(){{
+    fetch(url,{{cache:"no-store"}}).then(function(r){{return r.json();}}).then(function(d){{
+      if(d && (d.status==="success"||d.status==="failed"||d.status==="cancelled"||d.status==="expired")){{
+        window.location.reload();
+      }}
+    }}).catch(function(){{}});
+  }}
+  setInterval(tick,4000);setTimeout(tick,1500);
+}})();
+</script>"""
+    return _paiement_page(title="Paiement en cours", heading="", accent="#24c7e8", body_html=poll)
+
+
+# ── Bonus fidélité : animation de félicitations (écran + son) ──────────────────
+
+def _celebration_html(bonus_code: str, duration_label: str, login_url: str = "") -> str:
+    """Bloc autonome (bouton cadeau → overlay confettis + jingle + code).
+
+    Le son et l'animation se déclenchent au TAP (compatible mini-navigateurs de
+    portail captif et politiques d'autoplay). Jingle généré via Web Audio :
+    aucun fichier audio, hors-ligne, libre de droits.
+    """
+    from django.utils.html import escape
+
+    code = escape(bonus_code)
+    dur = escape(duration_label or "")
+    connect = (
+        f'<a class="wzc-btn" href="{escape(login_url)}">Se connecter avec mon cadeau →</a>'
+        if login_url else ""
+    )
+    block = r"""
+<style>
+#wzc-gift{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:10000;
+ padding:14px 22px;border:0;border-radius:999px;cursor:pointer;color:#3a2600;
+ font:800 1rem Inter,system-ui,sans-serif;background:linear-gradient(135deg,#ffcb3f,#f2b416);
+ box-shadow:0 12px 34px rgba(242,180,22,.5);animation:wzc-pulse 1.4s ease-in-out infinite}
+@keyframes wzc-pulse{0%,100%{transform:translateX(-50%) scale(1)}50%{transform:translateX(-50%) scale(1.06)}}
+#wzc-ovl{position:fixed;inset:0;z-index:10001;display:none;place-items:center;padding:20px;
+ background:rgba(4,10,20,.86);backdrop-filter:blur(4px)}
+#wzc-ovl.on{display:grid}
+#wzc-cv{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:10002}
+.wzc-card{position:relative;z-index:10003;width:min(430px,100%);text-align:center;padding:30px 24px;
+ color:#fff;background:linear-gradient(160deg,#12233b,#0b1626);border:1px solid rgba(242,180,22,.4);
+ border-radius:26px;box-shadow:0 30px 80px rgba(0,0,0,.5)}
+.wzc-emo{font-size:3.2rem;line-height:1;animation:wzc-pop .6s ease}
+@keyframes wzc-pop{0%{transform:scale(0)}70%{transform:scale(1.25)}100%{transform:scale(1)}}
+.wzc-card h2{margin:10px 0 4px;font-size:1.5rem;color:#ffcb3f}
+.wzc-card p{margin:0 0 8px;color:#cfe0f0;font-size:.95rem}
+.wzc-code{margin:16px 0;padding:16px;background:#0a1524;border:1px dashed #ffcb3f;border-radius:14px;
+ font-size:2rem;font-weight:900;letter-spacing:.12em;color:#fff}
+.wzc-btn{display:block;width:100%;min-height:50px;margin-top:12px;padding:13px;border:0;border-radius:13px;
+ cursor:pointer;text-decoration:none;color:#10151c;font:850 1rem Inter,system-ui,sans-serif;
+ background:linear-gradient(135deg,#ffcb3f,#e59900)}
+.wzc-close{margin-top:10px;background:transparent;border:0;color:#9aabc0;cursor:pointer;font-size:.85rem;text-decoration:underline}
+</style>
+<button id="wzc-gift" type="button">🎁 Ouvrir mon cadeau</button>
+<div id="wzc-ovl" role="dialog" aria-modal="true" aria-label="Cadeau fidélité">
+  <canvas id="wzc-cv"></canvas>
+  <div class="wzc-card">
+    <div class="wzc-emo">🎉</div>
+    <h2>Félicitations !</h2>
+    <p>Merci de votre fidélité 🙏</p>
+    <p>Vous avez gagné un ticket <b>__DUR__</b> offert. Voici votre code cadeau :</p>
+    <div class="wzc-code">__CODE__</div>
+    __CONNECT__
+    <button class="wzc-close" type="button" onclick="document.getElementById('wzc-ovl').classList.remove('on')">Fermer</button>
+  </div>
+</div>
+<script>
+(function(){
+  var gift=document.getElementById("wzc-gift"), ovl=document.getElementById("wzc-ovl");
+  if(!gift||!ovl) return;
+  function jingle(){try{var C=window.AudioContext||window.webkitAudioContext;if(!C)return;
+    var x=new C(),n=x.currentTime,f=[523.25,659.25,783.99,1046.5];
+    f.forEach(function(hz,i){var o=x.createOscillator(),g=x.createGain();o.type="triangle";o.frequency.value=hz;
+      var t=n+i*0.12;g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.25,t+0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+0.38);o.connect(g);g.connect(x.destination);o.start(t);o.stop(t+0.42);});
+  }catch(e){}}
+  function confetti(){var cv=document.getElementById("wzc-cv");if(!cv)return;var c=cv.getContext("2d");
+    var W=cv.width=window.innerWidth,H=cv.height=window.innerHeight;
+    var col=["#f2b416","#24c7e8","#31d58b","#ff6b72","#ffcb3f","#ffffff"],ps=[];
+    for(var i=0;i<140;i++)ps.push({x:Math.random()*W,y:-Math.random()*H,r:4+Math.random()*6,
+      c:col[i%col.length],v:2+Math.random()*4,a:Math.random()*6.28,s:(Math.random()-0.5)*0.25});
+    var t0=Date.now();(function loop(){c.clearRect(0,0,W,H);
+      ps.forEach(function(p){p.y+=p.v;p.a+=p.s;p.x+=Math.sin(p.a);c.save();c.translate(p.x,p.y);c.rotate(p.a);
+        c.fillStyle=p.c;c.fillRect(-p.r/2,-p.r/2,p.r,p.r*0.62);c.restore();});
+      if(Date.now()-t0<4800)requestAnimationFrame(loop);else c.clearRect(0,0,W,H);})();}
+  gift.addEventListener("click",function(){ovl.classList.add("on");gift.style.display="none";jingle();confetti();});
+})();
+</script>
+"""
+    return block.replace("__CODE__", code).replace("__DUR__", dur).replace("__CONNECT__", connect)
+
+
+def _maybe_bonus_celebration(purchase, login_url: str = "") -> str:
+    """Renvoie le bloc de célébration si l'achat a déclenché un bonus non encore annoncé."""
+    from .models import LoyaltyPurchaseEvent
+
+    if not purchase.ticket_id:
+        return ""
+    ev = (
+        LoyaltyPurchaseEvent.objects.select_related("bonus_ticket")
+        .filter(
+            source_ticket_id=purchase.ticket_id,
+            bonus_ticket__isnull=False,
+            client_celebrated_at__isnull=True,
+        )
+        .first()
+    )
+    if ev is None:
+        return ""
+    LoyaltyPurchaseEvent.objects.filter(pk=ev.pk).update(client_celebrated_at=timezone.now())
+    return _celebration_html(ev.bonus_ticket.code, ev.bonus_ticket.get_duration_display(), login_url)
+
+
+def wifi_bonus_check(request: HttpRequest) -> JsonResponse:
+    """Le portail captif interroge : « cet appareil a-t-il un ticket bonus à fêter ? »
+
+    GET ?mac=..&site_code=..                → {has_bonus, code, duration_label}
+    GET ?mac=..&site_code=..&code=..&ack=1  → marque le bonus comme annoncé.
+    Sert les tickets bonus gagnés par un client à ticket PHYSIQUE comme en ligne.
+    En-tête CORS ouvert : appelé par le portail servi depuis le routeur (autre origine),
+    la réponse ne contient qu'un code de ticket bonus lié à une MAC (non sensible).
+    """
+    from .models import LoyaltyPurchaseEvent
+    from .router_control import normalize_mac
+    from .services import purchase as purchase_svc
+
+    def _json(payload):
+        resp = JsonResponse(payload)
+        resp["Access-Control-Allow-Origin"] = "*"
+        resp["Cache-Control"] = "no-store"
+        return resp
+
+    site = purchase_svc.resolve_site_by_code(request.GET.get("site_code", ""))
+    try:
+        mac = normalize_mac(request.GET.get("mac", "") or "")
+    except ValueError:
+        mac = ""
+    if site is None or not mac:
+        return _json({"has_bonus": False})
+
+    base = LoyaltyPurchaseEvent.objects.select_related("bonus_ticket").filter(
+        progress__site=site,
+        progress__mac_address=mac,
+        bonus_ticket__isnull=False,
+        client_celebrated_at__isnull=True,
+    )
+
+    code = (request.GET.get("code") or "").strip()
+    if request.GET.get("ack") and code:
+        ev = base.filter(bonus_ticket__code=code).first()
+        if ev is not None:
+            LoyaltyPurchaseEvent.objects.filter(pk=ev.pk).update(client_celebrated_at=timezone.now())
+        return _json({"ok": True})
+
+    ev = base.order_by("created_at").first()
+    if ev is None:
+        return _json({"has_bonus": False})
+    return _json({
+        "has_bonus": True,
+        "code": ev.bonus_ticket.code,
+        "duration_label": ev.bonus_ticket.get_duration_display(),
+    })
