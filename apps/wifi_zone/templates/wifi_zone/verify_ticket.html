@@ -4,30 +4,181 @@
 {% block title %}Vérification Ticket{% endblock %}
 
 {% block content %}
-<div class="container-fluid mt-3">
-  <h3><i class="bi bi-search"></i> Vérification de ticket</h3>
+<style>
+  .verify-card {
+    border-radius: 16px;
+    border: 2px solid #6c5ce7;
+    overflow: hidden;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+  .verify-header {
+    background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+    color: white;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .verify-header h5 { margin: 0; font-weight: 600; }
+  .verify-header small { opacity: 0.85; display: block; font-size: 0.78rem; }
+  .verify-header .icon-check {
+    width: 40px; height: 40px;
+    background: #00b894;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .search-box {
+    background: #f8f9fc;
+    border-radius: 16px;
+    padding: 20px;
+    max-width: 600px;
+    margin: 20px auto;
+    border: 2px solid #6c5ce7;
+  }
+  .search-box label { font-weight: 600; color: #2d3436; margin-bottom: 8px; display: block; }
+  .search-box .input-group { gap: 10px; }
+  .search-box input {
+    border-radius: 12px;
+    border: 2px solid #dfe6e9;
+    padding: 12px 16px;
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+  .search-box input:focus { border-color: #6c5ce7; box-shadow: 0 0 0 3px rgba(108,92,231,0.15); }
+  .btn-verify {
+    background: #00b894;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    padding: 12px 24px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .btn-verify:hover { background: #00a381; color: white; }
 
-  <div class="row mt-3">
-    <div class="col-md-6">
-      <div class="input-group">
-        <input type="text" id="ticket-code" class="form-control form-control-lg"
-               placeholder="Entrez le code du ticket..." autofocus>
-        <button class="btn btn-primary" id="btn-verify" onclick="verifyTicket()">
-          <i class="bi bi-search"></i> Vérifier
-        </button>
+  .result-card {
+    max-width: 600px;
+    margin: 20px auto;
+    border-radius: 16px;
+    background: white;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    overflow: hidden;
+  }
+  .result-header {
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .result-header .dot {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .result-header .dot.available { background: #00b894; }
+  .result-header .dot.used { background: #6c5ce7; }
+  .result-header .dot.expired { background: #d63031; }
+  .result-header .info h6 { margin: 0; font-weight: 700; font-size: 1.05rem; }
+  .result-header .info small { color: #636e72; }
+
+  .status-badge {
+    text-align: center;
+    padding: 8px 20px;
+    margin: 0 20px 12px;
+    border-radius: 25px;
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+  .status-badge.available { background: #e0f8f0; color: #00b894; }
+  .status-badge.used { background: #f0edff; color: #6c5ce7; }
+  .status-badge.expired { background: #fde8e8; color: #d63031; }
+
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: #f0f0f0;
+    margin: 0 20px 20px;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .detail-cell {
+    background: white;
+    padding: 12px 16px;
+  }
+  .detail-cell label {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #b2bec3;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .detail-cell span {
+    font-weight: 600;
+    color: #2d3436;
+    font-size: 0.92rem;
+  }
+  .detail-cell.full-width {
+    grid-column: 1 / -1;
+  }
+
+  .problems-box {
+    margin: 0 20px 20px;
+    padding: 12px 16px;
+    background: #fff3e0;
+    border-radius: 12px;
+    border-left: 4px solid #ff9800;
+  }
+  .problems-box b { color: #e65100; }
+  .problems-box ul { margin: 6px 0 0; padding-left: 18px; }
+  .problems-box li { font-size: 0.88rem; color: #e65100; }
+
+  .tech-active { color: #00b894; font-weight: 700; }
+  .tech-expired { color: #d63031; font-weight: 700; }
+  .tech-available { color: #0984e3; font-weight: 700; }
+  .tech-inactive { color: #636e72; font-weight: 700; }
+</style>
+
+<div class="container-fluid mt-3">
+  <!-- Header -->
+  <div class="verify-card">
+    <div class="verify-header">
+      <div>
+        <small>CONTROLE SECURISE</small>
+        <h5>Vérifier un ticket</h5>
+      </div>
+      <div class="icon-check">
+        <svg width="22" height="22" fill="none" stroke="white" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
       </div>
     </div>
   </div>
 
-  <div id="result" class="mt-4" style="display:none;"></div>
+  <!-- Search -->
+  <div class="search-box">
+    <label>Code du ticket</label>
+    <div class="input-group">
+      <input type="text" id="ticket-code" class="form-control"
+             placeholder="Entrez le code..." autofocus>
+      <button class="btn btn-verify" id="btn-verify" onclick="verifyTicket()">
+        🔍 Vérifier le ticket
+      </button>
+    </div>
+  </div>
 
-  <hr class="mt-5">
-  <h5>Tickets problématiques
-    <button class="btn btn-sm btn-outline-warning" onclick="loadProblematic()">
-      <i class="bi bi-exclamation-triangle"></i> Charger
-    </button>
-  </h5>
-  <div id="problematic" class="mt-2"></div>
+  <!-- Result -->
+  <div id="result" style="display:none;"></div>
+
+  <div style="max-width:600px;margin:30px auto 0;">
+    <h6 style="color:#636e72;">Tickets problématiques
+      <button class="btn btn-sm btn-outline-warning ms-2" onclick="loadProblematic()">
+        ⚠️ Charger
+      </button>
+    </h6>
+    <div id="problematic" class="mt-2"></div>
+  </div>
 </div>
 
 <script>
@@ -36,52 +187,101 @@ function verifyTicket() {
   if (!code) return;
   const el = document.getElementById('result');
   el.style.display = 'block';
-  el.innerHTML = '<div class="spinner-border text-primary"></div> Vérification...';
+  el.innerHTML = '<div style="text-align:center;padding:30px;"><div class="spinner-border text-primary"></div><br>Vérification en cours...</div>';
 
   fetch('/wifi/api/ticket/' + encodeURIComponent(code) + '/verify/')
     .then(r => r.json())
     .then(d => {
       if (!d.found) {
-        el.innerHTML = '<div class="alert alert-danger"><b>Ticket introuvable :</b> ' + code + '</div>';
+        el.innerHTML = '<div class="result-card"><div style="padding:30px;text-align:center;"><div style="font-size:3rem;">❌</div><h5 style="color:#d63031;">Ticket introuvable</h5><p style="color:#636e72;">Code : <b>' + code + '</b></p></div></div>';
         return;
       }
-      let color = d.status === 'available' ? 'success' : d.status === 'used' ? 'primary' : 'secondary';
-      if (d.is_problematic) color = 'danger';
 
-      let html = '<div class="card border-' + color + '">';
-      html += '<div class="card-header bg-' + color + ' text-white"><b>' + d.code + '</b> — ' + d.status.toUpperCase() + '</div>';
-      html += '<div class="card-body">';
-      html += '<table class="table table-sm">';
-      html += '<tr><td><b>Durée</b></td><td>' + d.duration + '</td></tr>';
-      html += '<tr><td><b>Site</b></td><td>' + d.site + '</td></tr>';
-      html += '<tr><td><b>Prix</b></td><td>' + d.price + ' FCFA</td></tr>';
-      html += '<tr><td><b>Profil</b></td><td>' + d.profile + '</td></tr>';
-      html += '<tr><td><b>Sync</b></td><td>' + (d.synced || '<span class="text-danger">Non synchronisé</span>') + '</td></tr>';
+      const statusClass = d.status === 'available' ? 'available' : d.status === 'used' ? 'used' : 'expired';
+      const statusText = d.status_label || d.status;
+      const dotIcon = d.status === 'available' ? '✓' : d.status === 'used' ? '●' : '✕';
 
+      let msg = '';
+      if (d.status === 'used') msg = 'Ce ticket a déjà été utilisé.';
+      else if (d.status === 'available') msg = 'Ce ticket est disponible.';
+      else msg = 'Ce ticket a expiré.';
+
+      let techClass = 'tech-inactive';
+      if (d.technical_state === 'active') techClass = 'tech-active';
+      else if (d.technical_state === 'expiré') techClass = 'tech-expired';
+      else if (d.technical_state === 'disponible') techClass = 'tech-available';
+
+      let html = '<div class="result-card">';
+
+      // Header
+      html += '<div class="result-header">';
+      html += '<div class="dot ' + statusClass + '"><span style="color:white;font-size:1.2rem;">' + dotIcon + '</span></div>';
+      html += '<div class="info"><small>RESULTAT DE LA VERIFICATION</small>';
+      html += '<h6>Ticket ' + d.code + '</h6>';
+      html += '<small>' + msg + '</small></div></div>';
+
+      // Status badge
+      html += '<div class="status-badge ' + statusClass + '">' + statusText + '</div>';
+
+      // Detail grid
+      html += '<div class="detail-grid">';
+      html += cell('Profil', d.duration_label || d.duration);
+      html += cell('MikroTik', d.site);
+      html += cell('Point de vente', d.point_de_vente || '—');
+      html += cell('Prix', d.price + ' CFA');
+      html += cell('Temps consommé', d.time_consumed);
+      html += cell('Temps restant', d.time_remaining);
+      html += cell('Créé le', d.created_at);
+      html += cell('Attribué le', d.sold_at);
+      html += cell('Première utilisation', d.first_used_at);
+      html += cell('Expiration', d.expires_at);
+      html += cell('Validité restante', d.validity_remaining);
+      html += cell('État technique', '<span class="' + techClass + '">' + d.technical_state + '</span>');
+      html += cell('Adresse MAC', d.mac_address);
+      html += cell('Adresse IP', d.client_ip);
+
+      // MikroTik details
       if (d.mikrotik_user) {
         if (d.mikrotik_user.exists) {
-          html += '<tr><td><b>MikroTik</b></td><td><span class="badge bg-success">Présent</span> profil=' + d.mikrotik_user.profile + ' uptime=' + d.mikrotik_user.uptime + '</td></tr>';
+          html += cell('Profil MikroTik', d.mikrotik_user.profile);
+          html += cell('Uptime MikroTik', d.mikrotik_user.uptime);
         } else {
-          html += '<tr><td><b>MikroTik</b></td><td><span class="badge bg-danger">Absent</span></td></tr>';
+          html += cellFull('Utilisateur MikroTik', '<span style="color:#d63031;">Absent du routeur</span>');
         }
       }
 
+      // Active session
       if (d.active_session) {
-        html += '<tr><td><b>Connexion active</b></td><td><span class="badge bg-info">Connecté</span> IP=' + d.active_session.address + ' MAC=' + d.active_session.mac + ' uptime=' + d.active_session.uptime + '</td></tr>';
+        html += cellFull('Connexion active', '🟢 IP=' + d.active_session.address + ' MAC=' + d.active_session.mac + ' Uptime=' + d.active_session.uptime);
       }
-      html += '</table>';
 
+      html += cell('Synchronisation', d.synced || '<span style="color:#d63031;">Non synchronisé</span>');
+      if (d.sync_error) {
+        html += cellFull('Erreur sync', '<span style="color:#d63031;">' + d.sync_error + '</span>');
+      }
+
+      html += '</div>';
+
+      // Problems
       if (d.problems && d.problems.length > 0) {
-        html += '<div class="alert alert-warning mt-2"><b>Problèmes :</b><ul>';
+        html += '<div class="problems-box"><b>⚠️ Problèmes détectés :</b><ul>';
         d.problems.forEach(p => { html += '<li>' + p + '</li>'; });
         html += '</ul></div>';
       }
-      html += '</div></div>';
+
+      html += '</div>';
       el.innerHTML = html;
     })
     .catch(e => {
-      el.innerHTML = '<div class="alert alert-danger">Erreur : ' + e + '</div>';
+      el.innerHTML = '<div class="result-card"><div style="padding:20px;text-align:center;color:#d63031;">Erreur : ' + e + '</div></div>';
     });
+}
+
+function cell(label, value) {
+  return '<div class="detail-cell"><label>' + label + '</label><span>' + (value || '—') + '</span></div>';
+}
+function cellFull(label, value) {
+  return '<div class="detail-cell full-width"><label>' + label + '</label><span>' + (value || '—') + '</span></div>';
 }
 
 document.getElementById('ticket-code').addEventListener('keypress', function(e) {
@@ -90,18 +290,18 @@ document.getElementById('ticket-code').addEventListener('keypress', function(e) 
 
 function loadProblematic() {
   const el = document.getElementById('problematic');
-  el.innerHTML = '<div class="spinner-border text-warning"></div>';
+  el.innerHTML = '<div style="text-align:center;"><div class="spinner-border text-warning"></div></div>';
   fetch('/wifi/api/tickets/problematic/')
     .then(r => r.json())
     .then(d => {
       if (d.count === 0) {
-        el.innerHTML = '<div class="alert alert-success">Aucun ticket problématique !</div>';
+        el.innerHTML = '<div class="alert alert-success">✅ Aucun ticket problématique !</div>';
         return;
       }
       let html = '<div class="alert alert-warning">' + d.count + ' ticket(s) avec erreurs</div>';
       html += '<table class="table table-sm table-striped"><thead><tr><th>Code</th><th>Statut</th><th>Durée</th><th>Site</th><th>Erreur</th></tr></thead><tbody>';
       d.tickets.forEach(t => {
-        html += '<tr><td>' + t.code + '</td><td>' + t.status + '</td><td>' + t.duration + '</td><td>' + t.site + '</td><td class="text-danger">' + t.error + '</td></tr>';
+        html += '<tr><td><a href="#" onclick="document.getElementById(\'ticket-code\').value=\'' + t.code + '\';verifyTicket();return false;">' + t.code + '</a></td><td>' + t.status + '</td><td>' + t.duration + '</td><td>' + t.site + '</td><td class="text-danger">' + t.error + '</td></tr>';
       });
       html += '</tbody></table>';
       el.innerHTML = html;

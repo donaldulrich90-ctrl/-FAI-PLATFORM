@@ -1875,18 +1875,78 @@ def api_verify_ticket(request: HttpRequest, code: str) -> JsonResponse:
 
     from .router_control import resolve_wifi_zone_mikrotik_for_site, resolve_hotspot_profile_for_ticket
 
+    from django.utils import timezone as tz
+    now = tz.now()
+
+    # Calculs temporels
+    duration_label = dict(Ticket.Duration.choices).get(ticket.duration, ticket.duration)
+    activated = ticket.activated_at  # first_used_at or used_at
+    expires = ticket.expires_at
+    time_consumed = None
+    time_remaining = None
+    validity_remaining = None
+
+    if activated:
+        consumed_delta = now - activated
+        time_consumed = str(consumed_delta).split(".")[0]  # H:MM:SS
+        # Format jours/heures/minutes
+        days_c = consumed_delta.days
+        hours_c, rem_c = divmod(consumed_delta.seconds, 3600)
+        mins_c = rem_c // 60
+        time_consumed = f"{days_c} j {hours_c} h {mins_c} min" if days_c else f"{hours_c} h {mins_c} min"
+
+    if expires:
+        if expires > now:
+            remaining_delta = expires - now
+            days_r = remaining_delta.days
+            hours_r, rem_r = divmod(remaining_delta.seconds, 3600)
+            mins_r = rem_r // 60
+            time_remaining = f"{days_r} j {hours_r} h {mins_r} min" if days_r else f"{hours_r} h {mins_r} min"
+            validity_remaining = time_remaining
+        else:
+            time_remaining = "Expiré"
+            validity_remaining = "Expiré"
+
+    # Statut technique via MikroTik (sera enrichi plus bas)
+    technical_state = "inactive"
+    if ticket.status == "used" and expires and expires > now:
+        technical_state = "active"
+    elif ticket.status == "expired" or (expires and expires <= now):
+        technical_state = "expiré"
+    elif ticket.status == "available":
+        technical_state = "disponible"
+
+    # Point de vente
+    seller = "—"
+    if ticket.sold_by:
+        seller = ticket.sold_by.get_full_name() or ticket.sold_by.username
+
     data = {
         "found": True,
         "code": ticket.code,
         "status": ticket.status,
+        "status_label": dict(Ticket.Status.choices).get(ticket.status, ticket.status),
         "duration": ticket.duration,
+        "duration_label": duration_label,
         "site": ticket.site.name if ticket.site else "—",
         "price": str(ticket.price_xof) if hasattr(ticket, "price_xof") else "—",
+        "point_de_vente": seller,
         "synced": ticket.hotspot_synced_at.strftime("%d/%m/%Y %H:%M") if ticket.hotspot_synced_at else None,
         "sync_error": ticket.hotspot_sync_error or "",
         "profile": "—",
         "mikrotik_user": None,
         "active_session": None,
+        "mac_address": ticket.mac_address or "—",
+        "client_ip": ticket.client_ip or "—",
+        "created_at": ticket.created_at.strftime("%d/%m/%Y %H:%M") if ticket.created_at else "—",
+        "sold_at": ticket.sold_at.strftime("%d/%m/%Y %H:%M") if ticket.sold_at else "Non enregistrée",
+        "first_used_at": ticket.first_used_at.strftime("%d/%m/%Y %H:%M") if ticket.first_used_at else "Non enregistrée",
+        "used_at": ticket.used_at.strftime("%d/%m/%Y %H:%M") if ticket.used_at else "Non enregistrée",
+        "expires_at": expires.strftime("%d/%m/%Y %H:%M") if expires else "Illimité",
+        "time_consumed": time_consumed or "—",
+        "time_remaining": time_remaining or "—",
+        "validity_remaining": validity_remaining or "—",
+        "technical_state": technical_state,
         "problems": [],
         "is_problematic": False,
     }
