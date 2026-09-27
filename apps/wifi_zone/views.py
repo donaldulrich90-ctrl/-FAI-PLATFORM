@@ -1846,3 +1846,111 @@ def whatsapp_webhook(request: HttpRequest) -> HttpResponse:
     svc.send(phone, msg_ticket_reponse(ticket.reference), tenant_id=tenant_id)
 
     return HttpResponse(status=200)
+
+
+# ── 14. VÉRIFICATION TICKET ─────────────────────────────────────────────────
+
+@login_required
+def verify_ticket_page(request: HttpRequest) -> HttpResponse:
+    """Page de vérification de ticket avec recherche en temps réel."""
+    return render(request, "wifi_zone/verify_ticket.html")
+
+
+from django.views.decorators.http import require_GET
+
+
+@require_GET
+def api_verify_ticket(request: HttpRequest, code: str) -> JsonResponse:
+    """
+    API de vérification ticket : consulte la DB Django + MikroTik en temps réel.
+    Retourne le statut complet du ticket.
+    """
+    code = code.strip()
+    if not code:
+        return JsonResponse({"found": False, "error": "Code vide"})
+
+    ticket = Ticket.objects.select_related("site").filter(code=code).first()
+    if not ticket:
+        return JsonResponse({"found": False, "code": code})
+
+    from .router_control import resolve_wifi_zone_mikrotik_for_site, resolve_hotspot_profile_for_ticket
+
+    data = {
+        "found": True,
+        "code": ticket.code,
+        "status": ticket.status,
+        "duration": ticket.duration,
+        "site": ticket.site.name if ticket.site else "—",
+        "price": str(ticket.price_xof) if hasattr(ticket, "price_xof") else "—",
+        "synced": ticket.hotspot_synced_at.strftime("%d/%m/%Y %H:%M") if ticket.hotspot_synced_at else None,
+        "sync_error": ticket.hotspot_sync_error or "",
+        "profile": "—",
+        "mikrotik_user": None,
+        "active_session": None,
+        "problems": [],
+        "is_problematic": False,
+    }
+
+    try:
+        data["profile"] = resolve_hotspot_profile_for_ticket(ticket)
+    except Exception:
+        data["profile"] = "erreur"
+
+    device = resolve_wifi_zone_mikrotik_for_site(ticket.site) if ticket.site else None
+    if device:
+        try:
+            from apps.core.services.routeros_client import RouterOSClient
+            with RouterOSClient(device) as client:
+                # Vérifier si l'utilisateur existe sur MikroTik
+                users = list(client.talk(["/ip/hotspot/user/print", f"?name={code}"]))
+                if users:
+                    u = users[0]
+                    data["mikrotik_user"] = {
+                        "exists": True,
+                        "profile": u.get("profile", "—"),
+                        "uptime": u.get("uptime", "—"),
+                    }
+                else:
+                    data["mikrotik_user"] = {"exists": False}
+                    if ticket.status == "available":
+                        data["problems"].append("Ticket disponible mais absent du MikroTik")
+
+                # Vérifier session active
+                actives = list(client.talk(["/ip/hotspot/active/print", f"?user={code}"]))
+                if actives:
+                    a = actives[0]
+                    data["active_session"] = {
+                        "address": a.get("address", "—"),
+                        "mac": a.get("mac-address", "—"),
+                        "uptime": a.get("uptime", "—"),
+                    }
+        except Exception as e:
+            data["problems"].append(f"Erreur MikroTik : {e}")
+
+    if ticket.hotspot_sync_error:
+        data["problems"].append(f"Erreur sync : {ticket.hotspot_sync_error}")
+
+    data["is_problematic"] = len(data["problems"]) > 0
+    return JsonResponse(data)
+
+
+@login_required
+def api_problematic_tickets(request: HttpRequest) -> JsonResponse:
+    """Retourne les tickets avec erreurs de synchronisation (top 100)."""
+    tickets = (
+        Ticket.objects.select_related("site")
+        .exclude(hotspot_sync_error="")
+        .exclude(hotspot_sync_error__isnull=True)
+        .order_by("-pk")[:100]
+    )
+    result = []
+    for t in tickets:
+        result.append({
+            "id": t.pk,
+            "code": t.code,
+            "status": t.status,
+            "duration": t.duration,
+            "site": t.site.name if t.site else "—",
+            "error": t.hotspot_sync_error,
+        })
+    return JsonResponse({"tickets": result, "count": len(result)})

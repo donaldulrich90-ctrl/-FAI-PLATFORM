@@ -50,4 +50,8 @@ urlpatterns = [
     path("zones/<int:revendeur_id>/rapport/", views.zone_daily_report, name="zone_daily_report"),
     path("zones/<int:revendeur_id>/rapport-mensuel/", views.zone_monthly_report, name="zone_monthly_report"),
     path("zones/<int:revendeur_id>/export-jour/", views.zone_daily_report_csv, name="zone_daily_report_csv"),
+    # Vérification ticket
+    path('tickets/verify/', views.verify_ticket_page, name='verify-ticket'),
+    path('api/ticket/<str:code>/verify/', views.api_verify_ticket, name='api-verify-ticket'),
+    path('api/tickets/problematic/', views.api_problematic_tickets, name='api-problematic-tickets'),
 ]

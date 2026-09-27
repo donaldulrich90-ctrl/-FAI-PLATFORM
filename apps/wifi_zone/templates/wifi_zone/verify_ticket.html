@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}Vérification Ticket{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3">
+  <h3><i class="bi bi-search"></i> Vérification de ticket</h3>
+
+  <div class="row mt-3">
+    <div class="col-md-6">
+      <div class="input-group">
+        <input type="text" id="ticket-code" class="form-control form-control-lg"
+               placeholder="Entrez le code du ticket..." autofocus>
+        <button class="btn btn-primary" id="btn-verify" onclick="verifyTicket()">
+          <i class="bi bi-search"></i> Vérifier
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="result" class="mt-4" style="display:none;"></div>
+
+  <hr class="mt-5">
+  <h5>Tickets problématiques
+    <button class="btn btn-sm btn-outline-warning" onclick="loadProblematic()">
+      <i class="bi bi-exclamation-triangle"></i> Charger
+    </button>
+  </h5>
+  <div id="problematic" class="mt-2"></div>
+</div>
+
+<script>
+function verifyTicket() {
+  const code = document.getElementById('ticket-code').value.trim();
+  if (!code) return;
+  const el = document.getElementById('result');
+  el.style.display = 'block';
+  el.innerHTML = '<div class="spinner-border text-primary"></div> Vérification...';
+
+  fetch('/wifi/api/ticket/' + encodeURIComponent(code) + '/verify/')
+    .then(r => r.json())
+    .then(d => {
+      if (!d.found) {
+        el.innerHTML = '<div class="alert alert-danger"><b>Ticket introuvable :</b> ' + code + '</div>';
+        return;
+      }
+      let color = d.status === 'available' ? 'success' : d.status === 'used' ? 'primary' : 'secondary';
+      if (d.is_problematic) color = 'danger';
+
+      let html = '<div class="card border-' + color + '">';
+      html += '<div class="card-header bg-' + color + ' text-white"><b>' + d.code + '</b> — ' + d.status.toUpperCase() + '</div>';
+      html += '<div class="card-body">';
+      html += '<table class="table table-sm">';
+      html += '<tr><td><b>Durée</b></td><td>' + d.duration + '</td></tr>';
+      html += '<tr><td><b>Site</b></td><td>' + d.site + '</td></tr>';
+      html += '<tr><td><b>Prix</b></td><td>' + d.price + ' FCFA</td></tr>';
+      html += '<tr><td><b>Profil</b></td><td>' + d.profile + '</td></tr>';
+      html += '<tr><td><b>Sync</b></td><td>' + (d.synced || '<span class="text-danger">Non synchronisé</span>') + '</td></tr>';
+
+      if (d.mikrotik_user) {
+        if (d.mikrotik_user.exists) {
+          html += '<tr><td><b>MikroTik</b></td><td><span class="badge bg-success">Présent</span> profil=' + d.mikrotik_user.profile + ' uptime=' + d.mikrotik_user.uptime + '</td></tr>';
+        } else {
+          html += '<tr><td><b>MikroTik</b></td><td><span class="badge bg-danger">Absent</span></td></tr>';
+        }
+      }
+
+      if (d.active_session) {
+        html += '<tr><td><b>Connexion active</b></td><td><span class="badge bg-info">Connecté</span> IP=' + d.active_session.address + ' MAC=' + d.active_session.mac + ' uptime=' + d.active_session.uptime + '</td></tr>';
+      }
+      html += '</table>';
+
+      if (d.problems && d.problems.length > 0) {
+        html += '<div class="alert alert-warning mt-2"><b>Problèmes :</b><ul>';
+        d.problems.forEach(p => { html += '<li>' + p + '</li>'; });
+        html += '</ul></div>';
+      }
+      html += '</div></div>';
+      el.innerHTML = html;
+    })
+    .catch(e => {
+      el.innerHTML = '<div class="alert alert-danger">Erreur : ' + e + '</div>';
+    });
+}
+
+document.getElementById('ticket-code').addEventListener('keypress', function(e) {
+  if (e.key === 'Enter') verifyTicket();
+});
+
+function loadProblematic() {
+  const el = document.getElementById('problematic');
+  el.innerHTML = '<div class="spinner-border text-warning"></div>';
+  fetch('/wifi/api/tickets/problematic/')
+    .then(r => r.json())
+    .then(d => {
+      if (d.count === 0) {
+        el.innerHTML = '<div class="alert alert-success">Aucun ticket problématique !</div>';
+        return;
+      }
+      let html = '<div class="alert alert-warning">' + d.count + ' ticket(s) avec erreurs</div>';
+      html += '<table class="table table-sm table-striped"><thead><tr><th>Code</th><th>Statut</th><th>Durée</th><th>Site</th><th>Erreur</th></tr></thead><tbody>';
+      d.tickets.forEach(t => {
+        html += '<tr><td>' + t.code + '</td><td>' + t.status + '</td><td>' + t.duration + '</td><td>' + t.site + '</td><td class="text-danger">' + t.error + '</td></tr>';
+      });
+      html += '</tbody></table>';
+      el.innerHTML = html;
+    })
+    .catch(e => {
+      el.innerHTML = '<div class="alert alert-danger">Erreur : ' + e + '</div>';
+    });
+}
+</script>
+{% endblock %}
