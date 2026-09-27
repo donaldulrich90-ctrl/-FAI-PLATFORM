@@ -1,77 +1,163 @@
 {% extends "base.html" %}
+{% load static %}
 {% block leaflet_assets %}{% endblock %}
-{% block title %}Point de vente — Tickets{% endblock %}
-{% block breadcrumb %}Wi-Fi Zone / Point de vente{% endblock %}
+{% block title %}Point de vente — Faso ISP{% endblock %}
+{% block breadcrumb %}Point de vente{% endblock %}
 
 {% block content %}
-<div class="page-header anim-up" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
-  <div>
-    <h1 class="page-title">Point de vente</h1>
-    <p class="page-sub">Clique sur une durée&nbsp;: un ticket sort de ton stock, tu donnes le code au client. Les 24h et la recette démarrent à sa 1ʳᵉ connexion.</p>
-  </div>
-  <a href="{% url 'wifi_zone:revendeur_dashboard' %}" class="btn btn-ghost btn-sm">← Tableau de bord</a>
+<style>
+  .pv-header{text-align:center;padding:1.2rem 1rem .5rem;margin:-1rem -1rem 0}
+  .pv-header h1{font-size:1.5rem;font-weight:800;color:var(--text);margin:0 0 .15rem}
+  .pv-header p{font-size:.78rem;color:var(--dim);margin:0}
+
+  .pv-mini-stats{display:flex;gap:.5rem;margin:.75rem 0}
+  .pv-mini{flex:1;border-radius:12px;padding:.65rem .5rem;text-align:center;position:relative;overflow:hidden}
+  .pv-mini-green{background:linear-gradient(135deg,#10B981,#059669);color:#fff}
+  .pv-mini-blue{background:linear-gradient(135deg,#0EA5E9,#0284C7);color:#fff}
+  .pv-mini-val{font-size:1.5rem;font-weight:800;font-family:monospace}
+  .pv-mini-label{font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:.03em;margin-top:.15rem;opacity:.85}
+
+  .pv-last-sold{border-radius:14px;overflow:hidden;margin:.75rem 0;border:2px solid rgba(16,185,129,.3);background:rgba(16,185,129,.05)}
+  .pv-last-head{padding:.6rem 1rem;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(16,185,129,.15)}
+  .pv-last-head span{font-size:.78rem;font-weight:700;color:var(--green)}
+  .pv-last-body{text-align:center;padding:.6rem 1rem 1rem}
+  .pv-code-big{font-family:'JetBrains Mono',monospace;font-size:2.2rem;font-weight:800;letter-spacing:4px;margin:.25rem 0;user-select:all;color:var(--text)}
+  .pv-code-meta{font-size:.75rem;color:var(--dim);margin:.15rem 0 .6rem}
+  .pv-wa-btn{display:inline-flex;align-items:center;gap:6px;background:#25D366;color:#fff;padding:.55rem 1.5rem;border-radius:12px;font-size:.85rem;font-weight:700;text-decoration:none;border:none;cursor:pointer;transition:transform .15s;box-shadow:0 3px 12px rgba(37,211,102,.25)}
+  .pv-wa-btn:active{transform:scale(.95)}
+
+  .pv-section-title{font-size:.8rem;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.04em;margin:1.25rem 0 .5rem;padding-left:.25rem}
+
+  .pv-grid{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+  .pv-card{border-radius:16px;padding:1.1rem .75rem;text-align:center;text-decoration:none;display:flex;flex-direction:column;align-items:center;gap:.2rem;cursor:pointer;border:none;transition:transform .12s,box-shadow .12s;position:relative;overflow:hidden;box-shadow:0 4px 15px rgba(0,0,0,.15)}
+  .pv-card:active{transform:scale(.95)}
+  .pv-card-icon{font-size:1.8rem;margin-bottom:.1rem}
+  .pv-card-dur{font-size:1.15rem;font-weight:800;color:#fff}
+  .pv-card-price{font-size:.9rem;font-weight:600;color:rgba(255,255,255,.9);margin:.1rem 0}
+  .pv-card-stock{display:inline-flex;align-items:center;gap:3px;background:rgba(255,255,255,.2);padding:3px 12px;border-radius:20px;font-size:.7rem;font-weight:700;color:rgba(255,255,255,.95);margin-top:.2rem}
+  .pv-card-empty{opacity:.4;pointer-events:none;filter:grayscale(.6)}
+
+  /* Couleurs dynamiques pour chaque position de card */
+  .pv-card:nth-child(8n+1){background:linear-gradient(135deg,#10B981,#059669)}
+  .pv-card:nth-child(8n+2){background:linear-gradient(135deg,#0EA5E9,#0284C7)}
+  .pv-card:nth-child(8n+3){background:linear-gradient(135deg,#8B5CF6,#7C3AED)}
+  .pv-card:nth-child(8n+4){background:linear-gradient(135deg,#F59E0B,#D97706)}
+  .pv-card:nth-child(8n+5){background:linear-gradient(135deg,#EF4444,#DC2626)}
+  .pv-card:nth-child(8n+6){background:linear-gradient(135deg,#EC4899,#DB2777)}
+  .pv-card:nth-child(8n+7){background:linear-gradient(135deg,#06B6D4,#0891B2)}
+  .pv-card:nth-child(8n+8){background:linear-gradient(135deg,#F97316,#EA580C)}
+
+  .pv-confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center;padding:1rem}
+  .pv-confirm-overlay.active{display:flex}
+  .pv-confirm-box{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:1.75rem 1.5rem;text-align:center;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+  .pv-confirm-box h3{margin:0 0 .25rem;font-size:1.15rem;color:var(--text)}
+  .pv-confirm-box p{color:var(--dim);font-size:.85rem;margin:.25rem 0 1.25rem}
+  .pv-confirm-btns{display:flex;gap:.5rem}
+  .pv-confirm-btns button,.pv-confirm-btns .pv-btn-submit{flex:1;padding:.8rem;border-radius:12px;font-size:.95rem;font-weight:700;border:none;cursor:pointer;transition:transform .1s}
+  .pv-confirm-btns button:active,.pv-confirm-btns .pv-btn-submit:active{transform:scale(.96)}
+  .pv-btn-cancel{background:var(--surface);color:var(--dim);border:1px solid var(--border)}
+  .pv-btn-ok{background:linear-gradient(135deg,#10B981,#059669);color:#fff;box-shadow:0 3px 12px rgba(16,185,129,.3)}
+
+  .pv-back{display:flex;align-items:center;gap:6px;color:var(--primary);text-decoration:none;font-size:.82rem;font-weight:600;margin-top:1.25rem;padding:.5rem 0}
+
+  @media(min-width:450px){.pv-grid{grid-template-columns:repeat(3,1fr)}}
+  @media(min-width:650px){.pv-grid{grid-template-columns:repeat(4,1fr)}}
+</style>
+
+<!-- Header -->
+<div class="pv-header">
+  <h1>🛒 Point de vente</h1>
+  <p>Appuyez sur un ticket pour le vendre</p>
 </div>
 
-<!-- Résumé -->
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:22px;">
-  <div class="stat-card anim-up-1" style="--accent-color:rgba(0,229,153,.14);">
-    <p class="stat-label">Stock total</p>
-    <p class="stat-value" style="color:var(--green);">{{ stock_total }}</p>
+<!-- Stats rapides -->
+<div class="pv-mini-stats">
+  <div class="pv-mini pv-mini-green">
+    <div class="pv-mini-val">{{ stock_total }}</div>
+    <div class="pv-mini-label">📦 En stock</div>
   </div>
-  <div class="stat-card anim-up-2" style="--accent-color:rgba(0,194,255,.14);">
-    <p class="stat-label">Vendus aujourd'hui</p>
-    <p class="stat-value" style="color:var(--cyan);">{{ vendus_aujourdhui }}</p>
+  <div class="pv-mini pv-mini-blue">
+    <div class="pv-mini-val">{{ vendus_aujourdhui }}</div>
+    <div class="pv-mini-label">📊 Vendus aujourd'hui</div>
   </div>
 </div>
 
-{% if messages %}
-  {% for m in messages %}
-  <div class="card anim-up-1" style="padding:12px 16px;margin-bottom:16px;border-left:3px solid {% if m.tags == 'error' %}#e5484d{% elif m.tags == 'warning' %}var(--amber){% else %}var(--green){% endif %};">
-    {{ m }}
+<!-- Dernier ticket vendu -->
+{% if last %}
+<div class="pv-last-sold">
+  <div class="pv-last-head">
+    <span>✅ Dernier ticket vendu</span>
+  </div>
+  <div class="pv-last-body">
+    <div class="pv-code-big">{{ last.code }}</div>
+    <div class="pv-code-meta">{{ last.duration }} — {% if last.prix %}{{ last.prix }} CFA{% else %}Gratuit{% endif %}</div>
+    <a href="https://wa.me/?text=🎟%20Votre%20code%20Wi-Fi%20:%20{{ last.code }}%20({{ last.duration }}{% if last.prix %}%20-%20{{ last.prix }}%20CFA{% endif %})" target="_blank" class="pv-wa-btn">
+      📱 Envoyer via WhatsApp
+    </a>
+  </div>
+</div>
+{% endif %}
+
+<!-- Grille de tickets -->
+<div class="pv-section-title">Choisir un ticket à vendre</div>
+<div class="pv-grid">
+  {% for d in durations %}
+  <div class="pv-card{% if d.n == 0 %} pv-card-empty{% endif %}"
+       {% if d.n > 0 %}onclick="showConfirm('{{ d.code }}','{{ d.label }}','{{ d.prix }}','{{ d.n }}')"{% endif %}>
+    <div class="pv-card-icon">
+      {% if d.code == "2h" %}⚡{% elif d.code == "3h" %}⚡{% elif d.code == "4h" %}⏱{% elif d.code == "1d" %}☀️{% elif d.code == "5j" %}📅{% elif d.code == "1w" %}📆{% elif d.code == "30j" %}🗓{% elif d.code == "illimite" %}♾️{% else %}🎫{% endif %}
+    </div>
+    <div class="pv-card-dur">{{ d.label }}</div>
+    <div class="pv-card-price">{% if d.prix %}{{ d.prix }} CFA{% else %}Gratuit{% endif %}</div>
+    <div class="pv-card-stock">
+      {% if d.n > 0 %}📦 {{ d.n }} dispo{% else %}✗ Épuisé{% endif %}
+    </div>
+  </div>
+  {% empty %}
+  <div style="grid-column:1/-1;text-align:center;padding:2.5rem;color:var(--muted);">
+    <div style="font-size:3rem;margin-bottom:.5rem;opacity:.4;">📦</div>
+    <p style="margin:0;font-size:.9rem;">Aucun ticket en stock</p>
+    <p style="margin:.25rem 0 0;font-size:.75rem;">Contactez l'administrateur</p>
   </div>
   {% endfor %}
-{% endif %}
-
-<!-- Dernier ticket vendu : grand code à donner au client -->
-{% if last %}
-<div class="card anim-up-1" style="padding:24px;margin-bottom:22px;border:1px solid var(--green);background:rgba(0,229,153,.06);text-align:center;">
-  <p style="font-size:13px;color:var(--muted);margin:0 0 6px;text-transform:uppercase;letter-spacing:.08em;">Ticket vendu — code à donner au client</p>
-  <div class="mono" style="font-size:46px;font-weight:800;letter-spacing:2px;color:var(--green);line-height:1;margin:6px 0;">{{ last.code }}</div>
-  <p style="color:var(--text);margin:8px 0 16px;">{{ last.duration }} · <b>{{ last.prix }} XOF</b></p>
-  <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-    <a class="btn btn-success btn-sm" target="_blank" rel="noopener"
-       href="https://wa.me/?text=Votre%20code%20WiFi%20ZONE%20%3A%20{{ last.code|urlencode }}%20({{ last.duration|urlencode }})%20-%20valable%20d%C3%A8s%20la%201re%20connexion.">
-      Envoyer par WhatsApp
-    </a>
-    <a class="btn btn-ghost btn-sm" href="{% url 'wifi_zone:revendeur_point_de_vente' %}">Nouvelle vente</a>
-  </div>
 </div>
-{% endif %}
 
-<!-- Boutons par durée -->
-{% if durations %}
-<div class="card anim-up-2" style="padding:22px;">
-  <div class="section-head" style="margin-bottom:16px;"><h2>Vendre un ticket</h2></div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px;">
-    {% for d in durations %}
-    <div style="border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px;background:var(--surface);">
-      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;">
-        <span style="font-size:17px;font-weight:700;color:var(--text);">{{ d.label }}</span>
-        <span class="badge {% if d.n <= 5 %}badge-amber{% else %}badge-slate{% endif %} mono" style="font-size:11px;">{{ d.n }} en stock</span>
-      </div>
-      <div class="mono" style="font-size:22px;font-weight:800;color:var(--green);">{{ d.prix|floatformat:0 }} <span style="font-size:12px;font-weight:500;color:var(--dim);">XOF</span></div>
-      <form method="post" action="{% url 'wifi_zone:revendeur_point_de_vente' %}" style="margin:0;">
+<!-- Confirmation modale -->
+<div class="pv-confirm-overlay" id="confirmOverlay">
+  <div class="pv-confirm-box">
+    <div style="font-size:2.5rem;margin-bottom:.5rem;">🎟</div>
+    <h3>Confirmer la vente</h3>
+    <p>Vendre un ticket <b id="cfLabel"></b> à <b id="cfPrix"></b> CFA ?<br>
+       <span style="font-size:.72rem;color:var(--muted);">Stock restant après vente : <span id="cfStock"></span></span></p>
+    <div class="pv-confirm-btns">
+      <button class="pv-btn-cancel" type="button" onclick="hideConfirm()">Annuler</button>
+      <form method="post" id="sellForm" style="flex:1;margin:0;">
         {% csrf_token %}
-        <input type="hidden" name="duration" value="{{ d.code }}">
-        <button type="submit" class="btn btn-primary" style="width:100%;">Vendre {{ d.prix|floatformat:0 }} XOF</button>
+        <input type="hidden" name="duration_code" id="cfCode" value="">
+        <button type="submit" class="pv-btn-ok pv-btn-submit" style="width:100%;">✓ Vendre</button>
       </form>
     </div>
-    {% endfor %}
   </div>
 </div>
-{% else %}
-<div class="card anim-up-2" style="padding:36px 22px;text-align:center;">
-  <p style="color:var(--muted);font-size:15px;margin:0;">Aucun ticket en stock. Contacte l'administrateur pour un réapprovisionnement.</p>
-</div>
-{% endif %}
+
+<!-- Retour dashboard -->
+<a href="{% url 'wifi_zone:revendeur_dashboard' %}" class="pv-back">
+  ← Retour à l'espace revendeur
+</a>
+
+<script>
+function showConfirm(code, label, prix, stock){
+  document.getElementById('cfCode').value=code;
+  document.getElementById('cfLabel').textContent=label;
+  document.getElementById('cfPrix').textContent=prix || 'Gratuit';
+  document.getElementById('cfStock').textContent=Math.max(0, parseInt(stock)-1);
+  document.getElementById('confirmOverlay').classList.add('active');
+}
+function hideConfirm(){
+  document.getElementById('confirmOverlay').classList.remove('active');
+}
+document.getElementById('confirmOverlay').addEventListener('click',function(e){
+  if(e.target===this)hideConfirm();
+});
+</script>
 {% endblock %}
