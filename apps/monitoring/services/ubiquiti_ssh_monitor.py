@@ -40,6 +40,17 @@ class UbiquitiSSHError(Exception):
     pass
 
 
+def _get_device_password(device) -> str:
+    """Récupère le mot de passe SSH : BD chiffrée > env var."""
+    if device.has_stored_password():
+        from apps.core.services.encryption import decrypt_credential
+        pw = decrypt_credential(device.encrypted_password)
+        if pw:
+            return pw
+    return os.environ.get("AIREOS_SSH_PASSWORD", "").strip()
+
+
+
 @dataclass
 class AirOSClientEntry:
     mac: str
@@ -304,9 +315,9 @@ class UbiquitiSSHService:
         if not username:
             m.error = "aireos_username non configuré sur cette antenne."
             return m
-        password = os.environ.get("AIREOS_SSH_PASSWORD", "").strip()
+        password = _get_device_password(self.device)
         if not password:
-            m.error = "AIREOS_SSH_PASSWORD non configuré dans l'environnement."
+            m.error = "Mot de passe SSH non configuré (ni en BD, ni AIREOS_SSH_PASSWORD)."
             return m
 
         host = parent.management_host
@@ -368,9 +379,9 @@ def kick_station(device: "NetworkDevice", mac: str) -> dict:
     if not username:
         return {"ok": False, "error": "aireos_username non configuré."}
 
-    password = os.environ.get("AIREOS_SSH_PASSWORD", "").strip()
+    password = _get_device_password(device)
     if not password:
-        return {"ok": False, "error": "AIREOS_SSH_PASSWORD non configuré."}
+        return {"ok": False, "error": "Mot de passe SSH non configuré (ni en BD, ni AIREOS_SSH_PASSWORD)."}
 
     host = parent.management_host
     port = device.ssh_forward_port
