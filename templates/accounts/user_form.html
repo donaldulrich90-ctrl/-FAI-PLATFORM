@@ -113,22 +113,56 @@
       </div>
     </div>
 
-    <!-- ── Résumé des accès ── -->
+    <!-- ── Permissions d'accès ── -->
     <div class="card" style="padding:1.25rem;margin-bottom:1.5rem;">
-      <h3 style="font-size:.85rem;text-transform:uppercase;letter-spacing:.05em;color:var(--primary);margin:0 0 .75rem;font-weight:700;">Résumé des accès par rôle</h3>
-      <div style="font-size:.8rem;color:var(--dim);line-height:1.8;">
-        <div style="display:flex;gap:.5rem;align-items:flex-start;margin-bottom:.5rem;">
-          <span class="badge badge-red" style="min-width:90px;text-align:center;">Admin</span>
-          <span>Accès complet : Monitoring, Abonnés, Ventes Wi-Fi, Finance, Administration, Génération tickets, Gestion utilisateurs</span>
-        </div>
-        <div style="display:flex;gap:.5rem;align-items:flex-start;margin-bottom:.5rem;">
-          <span class="badge badge-cyan" style="min-width:90px;text-align:center;">Technicien</span>
-          <span>Monitoring réseau, Interventions, Antennes Ubiquiti, Simulation réseau, Clients connectés</span>
-        </div>
-        <div style="display:flex;gap:.5rem;align-items:flex-start;">
-          <span class="badge badge-green" style="min-width:90px;text-align:center;">Revendeur</span>
-          <span>Espace Revendeur, Point de vente, Vérifier ticket — accès limité à son propre stock et ses ventes</span>
-        </div>
+      <h3 style="font-size:.85rem;text-transform:uppercase;letter-spacing:.05em;color:var(--primary);margin:0 0 .5rem;font-weight:700;">Permissions d'accès</h3>
+      <p style="font-size:.78rem;color:var(--dim);margin:0 0 1rem;">Sélectionnez les sections accessibles. Les admins ont automatiquement accès à tout.</p>
+      <div id="access-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;">
+        <label class="access-check" style="display:flex;align-items:center;gap:.5rem;padding:.6rem .75rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .2s;">
+          <input type="checkbox" name="access_monitoring" {% if mode == 'edit' and target.access_monitoring %}checked{% endif %} style="width:16px;height:16px;accent-color:var(--cyan);">
+          <div>
+            <div style="font-size:.85rem;font-weight:600;color:var(--text);">📊 Monitoring</div>
+            <div style="font-size:.72rem;color:var(--muted);">Tableau de bord, Antennes, Clients</div>
+          </div>
+        </label>
+        <label class="access-check" style="display:flex;align-items:center;gap:.5rem;padding:.6rem .75rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .2s;">
+          <input type="checkbox" name="access_abonnes" {% if mode == 'edit' and target.access_abonnes %}checked{% endif %} style="width:16px;height:16px;accent-color:var(--cyan);">
+          <div>
+            <div style="font-size:.85rem;font-weight:600;color:var(--text);">🏠 Abonnés Domicile</div>
+            <div style="font-size:.72rem;color:var(--muted);">Abonnés, Tickets support</div>
+          </div>
+        </label>
+        <label class="access-check" style="display:flex;align-items:center;gap:.5rem;padding:.6rem .75rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .2s;">
+          <input type="checkbox" name="access_wifi" {% if mode == 'edit' and target.access_wifi %}checked{% endif %} style="width:16px;height:16px;accent-color:var(--cyan);">
+          <div>
+            <div style="font-size:.85rem;font-weight:600;color:var(--text);">📶 Ventes Wi-Fi</div>
+            <div style="font-size:.72rem;color:var(--muted);">Tickets, Zones, Revendeurs, Génération</div>
+          </div>
+        </label>
+        <label class="access-check" style="display:flex;align-items:center;gap:.5rem;padding:.6rem .75rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .2s;">
+          <input type="checkbox" name="access_revendeur" {% if mode == 'edit' and target.access_revendeur %}checked{% endif %} style="width:16px;height:16px;accent-color:var(--cyan);">
+          <div>
+            <div style="font-size:.85rem;font-weight:600;color:var(--text);">🛒 Espace Revendeur</div>
+            <div style="font-size:.72rem;color:var(--muted);">Point de vente, Dashboard revendeur</div>
+          </div>
+        </label>
+        <label class="access-check" style="display:flex;align-items:center;gap:.5rem;padding:.6rem .75rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .2s;">
+          <input type="checkbox" name="access_finance" {% if mode == 'edit' and target.access_finance %}checked{% endif %} style="width:16px;height:16px;accent-color:var(--cyan);">
+          <div>
+            <div style="font-size:.85rem;font-weight:600;color:var(--text);">💰 Finance</div>
+            <div style="font-size:.72rem;color:var(--muted);">Dashboard Finance, Export CSV</div>
+          </div>
+        </label>
+        <label class="access-check" style="display:flex;align-items:center;gap:.5rem;padding:.6rem .75rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .2s;">
+          <input type="checkbox" name="access_admin" {% if mode == 'edit' and target.access_admin %}checked{% endif %} style="width:16px;height:16px;accent-color:var(--cyan);">
+          <div>
+            <div style="font-size:.85rem;font-weight:600;color:var(--text);">⚙️ Administration</div>
+            <div style="font-size:.72rem;color:var(--muted);">Admin Django, Gestion utilisateurs</div>
+          </div>
+        </label>
+      </div>
+      <div id="admin-notice" style="display:none;margin-top:.75rem;padding:.5rem .75rem;background:rgba(14,165,233,.1);border:1px solid rgba(14,165,233,.3);border-radius:6px;font-size:.78rem;color:var(--primary);">
+        ℹ️ Les administrateurs ont automatiquement accès à toutes les sections.
       </div>
     </div>
 
@@ -144,11 +178,50 @@
 </div>
 
 <script>
+const ACCESS_DEFAULTS = {
+  admin:      { monitoring: true, abonnes: true, wifi: true, revendeur: true, finance: true, admin: true },
+  technician: { monitoring: true, abonnes: true, wifi: false, revendeur: false, finance: false, admin: false },
+  revendeur:  { monitoring: false, abonnes: false, wifi: false, revendeur: true, finance: false, admin: false },
+};
 function toggleRevendeurFields() {
   const role = document.getElementById('id_role').value;
-  const fields = document.getElementById('revendeur-fields');
-  fields.style.display = role === 'revendeur' ? 'block' : 'none';
+  document.getElementById('revendeur-fields').style.display = role === 'revendeur' ? 'block' : 'none';
 }
+function applyAccessDefaults() {
+  const role = document.getElementById('id_role').value;
+  const grid = document.getElementById('access-grid');
+  const notice = document.getElementById('admin-notice');
+  const boxes = grid.querySelectorAll('input[type="checkbox"]');
+  const defaults = ACCESS_DEFAULTS[role];
+  if (defaults) {
+    boxes.forEach(cb => {
+      const key = cb.name.replace('access_', '');
+      cb.checked = defaults[key] || false;
+    });
+  }
+  // Disable checkboxes for admin (always all access)
+  if (role === 'admin') {
+    boxes.forEach(cb => { cb.checked = true; cb.disabled = true; });
+    notice.style.display = 'block';
+  } else {
+    boxes.forEach(cb => { cb.disabled = false; });
+    notice.style.display = 'none';
+  }
+}
+document.getElementById('id_role').addEventListener('change', function() {
+  toggleRevendeurFields();
+  applyAccessDefaults();
+});
 toggleRevendeurFields();
+// On edit mode, don't override saved values — only apply defaults on create
+{% if mode == 'create' %}applyAccessDefaults();{% endif %}
+// On edit mode for admin role, still show notice and disable
+{% if mode == 'edit' %}
+if (document.getElementById('id_role').value === 'admin') {
+  const boxes = document.getElementById('access-grid').querySelectorAll('input[type="checkbox"]');
+  boxes.forEach(cb => { cb.checked = true; cb.disabled = true; });
+  document.getElementById('admin-notice').style.display = 'block';
+}
+{% endif %}
 </script>
 {% endblock %}

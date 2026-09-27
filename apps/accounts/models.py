@@ -125,6 +125,39 @@ class User(AbstractUser):
         help_text="AUTONOME : peut générer ses propres tickets. PARTENAIRE : accès lecture seule à ses ventes.",
     )
 
+
+    # ── Permissions d'accès par section ───────────────────────
+    access_monitoring = models.BooleanField(
+        "Accès Monitoring",
+        default=False,
+        help_text="Tableau de bord, Interventions, Antennes Ubiquiti, Simulation réseau, Clients connectés.",
+    )
+    access_abonnes = models.BooleanField(
+        "Accès Abonnés Domicile",
+        default=False,
+        help_text="Abonnés Domicile, Tickets Support.",
+    )
+    access_wifi = models.BooleanField(
+        "Accès Ventes Wi-Fi",
+        default=False,
+        help_text="Tickets imprimés, Vérifier ticket, Revendeurs, WiFi Zones, Générer tickets.",
+    )
+    access_revendeur = models.BooleanField(
+        "Accès Espace Revendeur",
+        default=False,
+        help_text="Espace Revendeur, Point de vente, Rapports Journaliers.",
+    )
+    access_finance = models.BooleanField(
+        "Accès Finance",
+        default=False,
+        help_text="Dashboard Finance, Export Caisse (CSV).",
+    )
+    access_admin = models.BooleanField(
+        "Accès Administration",
+        default=False,
+        help_text="Admin Django, Gestion Utilisateurs, Organisations.",
+    )
+
     class Meta:
         verbose_name = "utilisateur"
         verbose_name_plural = "utilisateurs"
@@ -184,7 +217,36 @@ class User(AbstractUser):
         return self.is_revendeur and self.type_revendeur == self.TypeRevendeur.PARTENAIRE
 
     def can_access_monitoring(self) -> bool:
-        return self.is_technician
+        if self.is_admin_role:
+            return True
+        return self.access_monitoring
+
+    def can_access_abonnes(self) -> bool:
+        if self.is_admin_role:
+            return True
+        return self.access_abonnes
+
+    def can_access_wifi(self) -> bool:
+        if self.is_admin_role:
+            return True
+        return self.access_wifi
+
+    def can_access_revendeur(self) -> bool:
+        if self.is_admin_role:
+            return True
+        if self.is_revendeur:
+            return True
+        return self.access_revendeur
+
+    def can_access_finance(self) -> bool:
+        if self.is_admin_role:
+            return True
+        return self.access_finance
+
+    def can_access_admin(self) -> bool:
+        if self.is_admin_role:
+            return True
+        return self.access_admin
 
     def can_sell_wifi_zone(self) -> bool:
-        return self.is_revendeur or self.is_admin_role
+        return self.is_revendeur or self.is_admin_role or self.access_wifi

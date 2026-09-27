@@ -121,6 +121,14 @@ def user_create(request: HttpRequest) -> HttpResponse:
         if role == User.Role.ADMIN:
             user.is_staff = True
 
+        # ── Permissions d'accès granulaires ──
+        user.access_monitoring = request.POST.get("access_monitoring") == "on"
+        user.access_abonnes = request.POST.get("access_abonnes") == "on"
+        user.access_wifi = request.POST.get("access_wifi") == "on"
+        user.access_revendeur = request.POST.get("access_revendeur") == "on"
+        user.access_finance = request.POST.get("access_finance") == "on"
+        user.access_admin = request.POST.get("access_admin") == "on"
+
         user.set_password(password)
         user.save()
 
@@ -170,6 +178,14 @@ def user_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
         if target.role == User.Role.ADMIN:
             target.is_staff = True
+
+        # ── Permissions d'accès granulaires ──
+        target.access_monitoring = request.POST.get("access_monitoring") == "on"
+        target.access_abonnes = request.POST.get("access_abonnes") == "on"
+        target.access_wifi = request.POST.get("access_wifi") == "on"
+        target.access_revendeur = request.POST.get("access_revendeur") == "on"
+        target.access_finance = request.POST.get("access_finance") == "on"
+        target.access_admin = request.POST.get("access_admin") == "on"
 
         new_password = request.POST.get("password", "").strip()
         if new_password:
