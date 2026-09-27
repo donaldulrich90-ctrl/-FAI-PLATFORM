@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == 'edit' %}Modifier {{ target.username }}{% else %}Nouvel Utilisateur{% endif %} — Faso ISP{% endblock %}
+
+{% block content %}
+<div class="topbar-breadcrumb">
+  <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+  <a href="{% url 'accounts:user_list' %}" style="color:var(--dim);text-decoration:none;">Utilisateurs</a>
+  <span style="color:var(--muted);margin:0 .4rem;">/</span>
+  {% if mode == 'edit' %}Modifier {{ target.username }}{% else %}Nouvel Utilisateur{% endif %}
+</div>
+
+<div style="max-width:680px;margin:0 auto;">
+  <h1 style="font-size:1.4rem;font-weight:700;margin-bottom:.25rem;">
+    {% if mode == 'edit' %}
+      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="vertical-align:middle;margin-right:.3rem;"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+      Modifier « {{ target.username }} »
+    {% else %}
+      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="vertical-align:middle;margin-right:.3rem;"><path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+      Créer un utilisateur
+    {% endif %}
+  </h1>
+  <p style="color:var(--dim);font-size:.85rem;margin-bottom:1.5rem;">
+    {% if mode == 'edit' %}Modifiez les informations et les accès de cet utilisateur.{% else %}Remplissez les informations pour créer un nouveau compte.{% endif %}
+  </p>
+
+  <form method="post" autocomplete="off">
+    {% csrf_token %}
+
+    <!-- ── Identité ── -->
+    <div class="card" style="padding:1.25rem;margin-bottom:1rem;">
+      <h3 style="font-size:.85rem;text-transform:uppercase;letter-spacing:.05em;color:var(--primary);margin:0 0 1rem;font-weight:700;">Identité</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;">
+        <div>
+          <label class="form-label">Nom d'utilisateur <span style="color:var(--red);">*</span></label>
+          <input type="text" name="username" value="{% if mode == 'edit' %}{{ target.username }}{% endif %}" class="form-control" required {% if mode == 'edit' %}readonly style="opacity:.6;cursor:not-allowed;"{% endif %}>
+        </div>
+        <div>
+          <label class="form-label">Mot de passe {% if mode == 'create' %}<span style="color:var(--red);">*</span>{% endif %}</label>
+          <input type="password" name="password" class="form-control" {% if mode == 'create' %}required{% endif %} placeholder="{% if mode == 'edit' %}Laisser vide pour ne pas changer{% endif %}">
+        </div>
+        <div>
+          <label class="form-label">Prénom</label>
+          <input type="text" name="first_name" value="{% if mode == 'edit' %}{{ target.first_name }}{% endif %}" class="form-control">
+        </div>
+        <div>
+          <label class="form-label">Nom</label>
+          <input type="text" name="last_name" value="{% if mode == 'edit' %}{{ target.last_name }}{% endif %}" class="form-control">
+        </div>
+        <div>
+          <label class="form-label">Email</label>
+          <input type="email" name="email" value="{% if mode == 'edit' %}{{ target.email }}{% endif %}" class="form-control">
+        </div>
+        <div>
+          <label class="form-label">Téléphone</label>
+          <input type="text" name="phone" value="{% if mode == 'edit' %}{{ target.phone }}{% endif %}" class="form-control" placeholder="+226 XX XX XX XX">
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Rôle & Accès ── -->
+    <div class="card" style="padding:1.25rem;margin-bottom:1rem;">
+      <h3 style="font-size:.85rem;text-transform:uppercase;letter-spacing:.05em;color:var(--primary);margin:0 0 1rem;font-weight:700;">Rôle & Accès</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;">
+        <div>
+          <label class="form-label">Rôle <span style="color:var(--red);">*</span></label>
+          <select name="role" id="id_role" class="form-control" onchange="toggleRevendeurFields()">
+            {% for val, label in role_choices %}
+              <option value="{{ val }}" {% if mode == 'edit' and target.role == val %}selected{% elif mode == 'create' and val == 'revendeur' %}{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Site rattaché</label>
+          <select name="site" class="form-control">
+            <option value="">— Aucun —</option>
+            {% for s in sites %}
+              <option value="{{ s.pk }}" {% if mode == 'edit' and target.site_id == s.pk %}selected{% endif %}>{{ s.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Statut</label>
+          <div style="display:flex;align-items:center;gap:.5rem;padding:.5rem 0;">
+            <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;font-size:.85rem;">
+              <input type="checkbox" name="is_active" {% if mode == 'create' or target.is_active %}checked{% endif %} style="width:16px;height:16px;accent-color:var(--green);">
+              Compte actif
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Champs revendeur (affichés dynamiquement) ── -->
+      <div id="revendeur-fields" style="display:none;margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border);">
+        <h4 style="font-size:.8rem;color:var(--green);margin:0 0 .75rem;font-weight:600;">OPTIONS REVENDEUR</h4>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem;">
+          <div>
+            <label class="form-label">Type revendeur</label>
+            <select name="type_revendeur" class="form-control">
+              {% for val, label in type_revendeur_choices %}
+                <option value="{{ val }}" {% if mode == 'edit' and target.type_revendeur == val %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Préfixe tickets</label>
+            <input type="text" name="ticket_prefix" value="{% if mode == 'edit' %}{{ target.ticket_prefix }}{% endif %}" class="form-control" placeholder="ex: REV01" maxlength="10" style="text-transform:uppercase;">
+          </div>
+          <div>
+            <label class="form-label">Commission (%)</label>
+            <input type="number" name="commission" value="{% if mode == 'edit' %}{{ target.default_commission_percent }}{% else %}10{% endif %}" class="form-control" min="0" max="100" step="0.01">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Résumé des accès ── -->
+    <div class="card" style="padding:1.25rem;margin-bottom:1.5rem;">
+      <h3 style="font-size:.85rem;text-transform:uppercase;letter-spacing:.05em;color:var(--primary);margin:0 0 .75rem;font-weight:700;">Résumé des accès par rôle</h3>
+      <div style="font-size:.8rem;color:var(--dim);line-height:1.8;">
+        <div style="display:flex;gap:.5rem;align-items:flex-start;margin-bottom:.5rem;">
+          <span class="badge badge-red" style="min-width:90px;text-align:center;">Admin</span>
+          <span>Accès complet : Monitoring, Abonnés, Ventes Wi-Fi, Finance, Administration, Génération tickets, Gestion utilisateurs</span>
+        </div>
+        <div style="display:flex;gap:.5rem;align-items:flex-start;margin-bottom:.5rem;">
+          <span class="badge badge-cyan" style="min-width:90px;text-align:center;">Technicien</span>
+          <span>Monitoring réseau, Interventions, Antennes Ubiquiti, Simulation réseau, Clients connectés</span>
+        </div>
+        <div style="display:flex;gap:.5rem;align-items:flex-start;">
+          <span class="badge badge-green" style="min-width:90px;text-align:center;">Revendeur</span>
+          <span>Espace Revendeur, Point de vente, Vérifier ticket — accès limité à son propre stock et ses ventes</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Boutons ── -->
+    <div style="display:flex;gap:.75rem;justify-content:flex-end;">
+      <a href="{% url 'accounts:user_list' %}" class="btn btn-ghost">Annuler</a>
+      <button type="submit" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:.4rem;">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        {% if mode == 'edit' %}Enregistrer{% else %}Créer l'utilisateur{% endif %}
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+function toggleRevendeurFields() {
+  const role = document.getElementById('id_role').value;
+  const fields = document.getElementById('revendeur-fields');
+  fields.style.display = role === 'revendeur' ? 'block' : 'none';
+}
+toggleRevendeurFields();
+</script>
+{% endblock %}

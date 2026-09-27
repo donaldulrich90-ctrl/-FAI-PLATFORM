@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Gestion des Utilisateurs — Faso ISP{% endblock %}
+
+{% block content %}
+<div class="topbar-breadcrumb">
+  <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+  Gestion des Utilisateurs
+</div>
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.2rem;flex-wrap:wrap;gap:.8rem;">
+  <div>
+    <h1 style="font-size:1.5rem;font-weight:700;margin:0;">Utilisateurs</h1>
+    <p style="color:var(--dim);margin:.25rem 0 0;font-size:.875rem;">Créez et gérez les comptes d'accès à la plateforme</p>
+  </div>
+  <a href="{% url 'accounts:user_create' %}" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:.5rem;">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+    Nouvel utilisateur
+  </a>
+</div>
+
+<!-- ── Stats ── -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.75rem;margin-bottom:1.5rem;">
+  <div class="card" style="padding:1rem;text-align:center;">
+    <div style="font-size:1.75rem;font-weight:800;color:var(--primary);">{{ stats.total }}</div>
+    <div style="font-size:.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;">Total</div>
+  </div>
+  <div class="card" style="padding:1rem;text-align:center;">
+    <div style="font-size:1.75rem;font-weight:800;color:var(--red);">{{ stats.admins }}</div>
+    <div style="font-size:.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;">Admins</div>
+  </div>
+  <div class="card" style="padding:1rem;text-align:center;">
+    <div style="font-size:1.75rem;font-weight:800;color:var(--cyan);">{{ stats.techs }}</div>
+    <div style="font-size:.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;">Techniciens</div>
+  </div>
+  <div class="card" style="padding:1rem;text-align:center;">
+    <div style="font-size:1.75rem;font-weight:800;color:var(--green);">{{ stats.revendeurs }}</div>
+    <div style="font-size:.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;">Revendeurs</div>
+  </div>
+</div>
+
+<!-- ── Filtres ── -->
+<div class="card" style="padding:1rem;margin-bottom:1rem;display:flex;gap:.75rem;flex-wrap:wrap;align-items:center;">
+  <form method="get" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;flex:1;">
+    <input type="text" name="q" value="{{ search }}" placeholder="Rechercher (nom, téléphone, email…)" class="form-control" style="max-width:280px;font-size:.85rem;">
+    <select name="role" class="form-control" style="max-width:180px;font-size:.85rem;">
+      <option value="">Tous les rôles</option>
+      {% for val, label in role_choices %}
+        <option value="{{ val }}" {% if role_filter == val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-ghost" style="font-size:.85rem;">Filtrer</button>
+    {% if search or role_filter %}
+      <a href="{% url 'accounts:user_list' %}" style="color:var(--dim);font-size:.8rem;">✕ Reset</a>
+    {% endif %}
+  </form>
+</div>
+
+<!-- ── Tableau ── -->
+<div class="card" style="overflow-x:auto;">
+  <table class="tbl" style="width:100%;">
+    <thead>
+      <tr>
+        <th>Utilisateur</th>
+        <th>Rôle</th>
+        <th>Téléphone</th>
+        <th>Site</th>
+        <th>Statut</th>
+        <th>Créé le</th>
+        <th style="text-align:right;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>
+          <div style="display:flex;align-items:center;gap:.6rem;">
+            <div style="width:32px;height:32px;border-radius:50%;background:{% if u.role == 'admin' %}rgba(239,68,68,.15){% elif u.role == 'revendeur' %}rgba(16,185,129,.15){% else %}rgba(6,182,212,.15){% endif %};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.75rem;color:{% if u.role == 'admin' %}var(--red){% elif u.role == 'revendeur' %}var(--green){% else %}var(--cyan){% endif %};">
+              {{ u.username|first|upper }}
+            </div>
+            <div>
+              <div style="font-weight:600;font-size:.875rem;">{{ u.get_full_name|default:u.username }}</div>
+              <div style="font-size:.75rem;color:var(--muted);">{{ u.email|default:"—" }}</div>
+            </div>
+          </div>
+        </td>
+        <td>
+          <span class="badge {% if u.role == 'admin' %}badge-red{% elif u.role == 'revendeur' %}badge-green{% else %}badge-cyan{% endif %}">
+            {{ u.get_role_display }}
+          </span>
+          {% if u.role == 'revendeur' and u.type_revendeur %}
+            <span style="font-size:.65rem;color:var(--muted);margin-left:.25rem;">{{ u.get_type_revendeur_display }}</span>
+          {% endif %}
+        </td>
+        <td style="font-size:.85rem;">{{ u.phone|default:"—" }}</td>
+        <td style="font-size:.85rem;">{{ u.site.name|default:"—" }}</td>
+        <td>
+          {% if u.is_active %}
+            <span class="badge badge-green">Actif</span>
+          {% else %}
+            <span class="badge badge-red">Inactif</span>
+          {% endif %}
+        </td>
+        <td style="font-size:.8rem;color:var(--dim);">{{ u.date_joined|date:"d/m/Y" }}</td>
+        <td style="text-align:right;">
+          <div style="display:flex;gap:.35rem;justify-content:flex-end;">
+            <a href="{% url 'accounts:user_edit' u.pk %}" class="btn btn-ghost" style="padding:.35rem .6rem;font-size:.75rem;" title="Modifier">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+            </a>
+            <form method="post" action="{% url 'accounts:user_toggle_active' u.pk %}" style="display:inline;">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-ghost" style="padding:.35rem .6rem;font-size:.75rem;" title="{% if u.is_active %}Désactiver{% else %}Activer{% endif %}">
+                {% if u.is_active %}
+                  <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                {% else %}
+                  <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                {% endif %}
+              </button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="7" style="text-align:center;padding:2rem;color:var(--muted);">
+          Aucun utilisateur trouvé.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- ── Pagination ── -->
+{% if users.has_other_pages %}
+<div style="display:flex;justify-content:center;gap:.5rem;margin-top:1rem;">
+  {% if users.has_previous %}
+    <a href="?page={{ users.previous_page_number }}{% if role_filter %}&role={{ role_filter }}{% endif %}{% if search %}&q={{ search }}{% endif %}" class="btn btn-ghost" style="font-size:.8rem;">← Précédent</a>
+  {% endif %}
+  <span style="padding:.4rem .8rem;font-size:.8rem;color:var(--dim);">Page {{ users.number }} / {{ users.paginator.num_pages }}</span>
+  {% if users.has_next %}
+    <a href="?page={{ users.next_page_number }}{% if role_filter %}&role={{ role_filter }}{% endif %}{% if search %}&q={{ search }}{% endif %}" class="btn btn-ghost" style="font-size:.8rem;">Suivant →</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
