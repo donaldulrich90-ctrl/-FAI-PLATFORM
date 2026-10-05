@@ -85,3 +85,50 @@ Ne pas effacer manuellement le verrou pour contourner un refus.
 Un plan préparé et un boot_id inchangé ne prouvent pas encore qu'un changement
 réel de fréquence fonctionnera sans redémarrage. Un essai distinct, avec canal
 autorisé, contrôles du retour des clients et du SNR, reste nécessaire.
+
+## Interpréter les arguments de chsw
+
+Le rapport lit `/bin/chsw` en octets avant toute préparation et calcule son
+SHA256 sans l'exécuter. Une copie de 637 octets fournie depuis Central-6,
+WA.v8.7.25, a été analysée statiquement :
+
+```text
+bd13756a7734ffa4dc918c07a94bcea948b5e11aefde22a42a8170451949f0d9
+```
+
+Il s'agit d'un programme Lua 5.1 avec constantes entières LNUM. Le décodage
+complet des 72 instructions et des trois fonctions confirme que les deux
+arguments sont `center`, puis `control`. Pour un appel à deux arguments, le
+programme convertit ceux-ci en nombres et effectue, dans cet ordre :
+
+```text
+iwconfig ath0 center1 <center>M
+iwconfig ath0 freq <control>M
+```
+
+Le statut de la première commande est ignoré ; le résultat retourné par
+`os.execute` pour la seconde est transmis à `os.exit`. Il ne comporte aucune
+commande de redémarrage. Cela décrit le
+programme inspecté, sans établir le comportement des commandes du pilote.
+
+Le résultat de `chsw` n'est pas une preuve suffisante de succès. En particulier,
+la bibliothèque [Lua 5.1 standard](https://www.lua.org/source/5.1/loslib.c.html)
+transmet le résultat brut de `system()` à `os.execute`, puis l'entier à `exit()`.
+Le bytecode ne permet pas d'établir si le firmware modifie ce comportement.
+Le canal effectivement en service doit donc toujours être relu séparément.
+
+Avec cette empreinte, `/bin/chsw -1 5895` vise donc bien 5895 MHz pour la fréquence
+de contrôle. `-1` est transmis tel quel à `center1` ; il n'est pas interprété par
+ce programme comme une fréquence automatique. Son acceptation et son effet sur
+le canal de 20 MHz restent à vérifier sur le pilote et le matériel. Le rapport
+signale cette limite séparément de la correspondance de la cible.
+
+Une autre empreinte rend l'interprétation indéterminée. Aucun programme n'est
+reconnu uniquement par son nom, la version affichée du firmware ou des chaînes
+de caractères ressemblantes. Un appel multiple, calculé ou non reconnu ne
+confirme pas non plus la cible. Cette reconnaissance ne crée aucune approbation
+de plan, ne lève pas le blocage de `kill` et n'active aucune commande réelle.
+
+Format consulté pour l'analyse : [instructions Lua 5.1](https://www.lua.org/source/5.1/lopcodes.h.html),
+[chargement Lua 5.1](https://www.lua.org/source/5.1/lundump.c.html) et
+[modifications LNUM](https://github.com/LuaDist/lualnum/blob/master/lua514-lnum-20090417-custom.patch).

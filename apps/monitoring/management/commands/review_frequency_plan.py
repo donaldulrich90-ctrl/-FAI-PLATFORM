@@ -33,7 +33,16 @@ class Command(BaseCommand):
             raise CommandError('Préparation non validée ; aucun plan exécuté par cette commande.')
         self.stdout.write(f"Antenne : {device.name} (id {device.pk})")
         self.stdout.write(f"Plan proposé : {result['freq_before']} → {result['target']} MHz, 20 MHz")
-        self.stdout.write(f"Cible chsw correspondante : {result['target_matches']}")
+        self.stdout.write('SHA256 du programme chsw : ' + result['chsw_sha256'])
+        self.stdout.write(f"Programme chsw reconnu par analyse statique : {result['chsw_known']}")
+        if result['target_matches'] is None:
+            self.stdout.write('Cible chsw : indéterminée ; programme non reconnu.')
+        else:
+            self.stdout.write(f"Cible chsw correspondante : {result['target_matches']}")
+            if result['control_arg'] is not None:
+                self.stdout.write(f"Arguments chsw : centre={result['center_arg']}, contrôle={result['control_arg']} MHz")
+            if result['center_requires_driver_check']:
+                self.stdout.write('La valeur du centre est transmise au pilote ; son acceptation reste à vérifier.')
         self.stdout.write(f"Exécution bloquée par les contrôles actuels : {result['execution_blocked']}")
         self.stdout.write('SHA256 : ' + result['sha256'])
         self.stdout.write('--- Plan à examiner, NON exécuté ---')

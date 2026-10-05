@@ -12,6 +12,49 @@ from django.conf import settings
 from .airos_soft_apply import checked_exec, inspect_device, runtime
 
 
+# Copie WA.v8.7.25 de 637 octets, analysée statiquement : arguments center/control.
+# Cette empreinte reconnaît la sémantique du programme, sans approuver son exécution.
+CHSW_CENTER_CONTROL_SHA256 = 'bd13756a7734ffa4dc918c07a94bcea948b5e11aefde22a42a8170451949f0d9'
+
+
+def read_chsw_fingerprint(client):
+    """Lire les octets, jamais les décoder comme du texte ou exécuter chsw."""
+    _, stdout, stderr = client.exec_command(
+        'test -f /bin/chsw && test -x /bin/chsw && cat /bin/chsw', timeout=20)
+    try:
+        data = stdout.read(65537)
+        if not isinstance(data, bytes) or not data or len(data) > 65536:
+            raise RuntimeError('Programme chsw vide, illisible ou trop volumineux ; examen refusé.')
+        stderr.read(4096)
+        if stdout.channel.recv_exit_status() != 0:
+            raise RuntimeError('Lecture du programme chsw refusée ; aucune préparation effectuée.')
+        return hashlib.sha256(data).hexdigest()
+    finally:
+        stdout.channel.close()
+
+
+def analyze_chsw_target(plan, target, helper_sha256):
+    """Interprétation descriptive d'un seul appel littéral au programme connu.
+
+    Le programme transmet center à « iwconfig ath0 center1 <center>M », puis
+    control à « iwconfig ath0 freq <control>M ». Il ne traite pas -1 lui-même
+    et ignore le statut de la première commande : la cible ne prouve donc pas
+    que le pilote accepte la fréquence centrale ni que la liaison fonctionne.
+    """
+    known = helper_sha256 == CHSW_CENTER_CONTROL_SHA256
+    calls = [line for line in plan.splitlines() if '/bin/chsw' in line]
+    match = re.fullmatch(
+        r'[ \t]*/bin/chsw[ \t]+(-?\d+)[ \t]+(-?\d+)[ \t]*(?:;[ \t]*iwconfig_code=\$\?)?[ \t]*',
+        calls[0]) if len(calls) == 1 else None
+    center, control = (int(value) for value in match.groups()) if known and match else (None, None)
+    return {
+        'chsw_sha256': helper_sha256, 'chsw_known': known,
+        'target_matches': control == target if known else None,
+        'center_arg': center, 'control_arg': control,
+        'center_requires_driver_check': center is not None and center != target,
+    }
+
+
 # BusyBox est compilé avec une sélection d'outils : ne pas supposer que cmp existe.
 # diff sans option suffit à comparer les fichiers et est utilisé par airOS lui-même.
 PREFLIGHT_SCRIPT = r'''set -eu
@@ -241,6 +284,7 @@ def review_frequency_plan(connect, device, target):
         # Une session en lecture seule permet de signaler une dépendance absente
         # sans annoncer à tort une restauration incertaine ou une archive créée.
         checked_exec(client, PREFLIGHT_SCRIPT)
+        helper_sha256 = read_chsw_fingerprint(client)
         entered_preparation = True
         plan = checked_exec(client, preparation_script(target, directory), timeout=120)
         after = runtime(client)
@@ -253,12 +297,11 @@ def review_frequency_plan(connect, device, target):
                     'Configuration non restaurée à l’identique : intervention requise.'}
         if not plan:
             return {'ok': False, 'message': 'Aucun plan produit.'}
-        matches = re.findall(r'(?m)^\s*/bin/chsw\s+(\d+)\s+(\d+)\s*(?:;|$)', plan)
         blocked = bool(re.search(r'\b(reboot|shutdown|halt|poweroff|kill|rc_stop|rc_start|rc\.softrestart|rc\.do\.softrestart)\b', plan))
         return {'ok': True, 'freq_before': before['freq_mhz'], 'target': target,
                 'boot_id': before['boot_id'], 'plan': plan,
                 'sha256': hashlib.sha256(plan.encode('utf-8')).hexdigest(),
-                'target_matches': matches == [(str(target), str(target))],
+                **analyze_chsw_target(plan, target, helper_sha256),
                 'execution_blocked': blocked, 'restored': True}
     except Exception as exc:
         result = {'ok': False, 'uncertain': entered_preparation, 'message': str(exc)[:240]}

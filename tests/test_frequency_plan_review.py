@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import os
 from pathlib import Path
@@ -11,8 +12,9 @@ from django.test import override_settings
 from django.core.management.base import CommandError
 
 from apps.monitoring.services.frequency_plan_review import (
-    PREFLIGHT_SCRIPT, check_saved_review, inventory_script, normalize_manifest,
-    preparation_script, review_frequency_plan,
+    CHSW_CENTER_CONTROL_SHA256, PREFLIGHT_SCRIPT, analyze_chsw_target,
+    check_saved_review, inventory_script, normalize_manifest, preparation_script,
+    read_chsw_fingerprint, review_frequency_plan,
 )
 
 BOOT = '12345678-1234-1234-1234-123456789012'
@@ -23,6 +25,78 @@ ARCHIVE = '/tmp/fai-review-' + 'a' * 32
 HASH_LINE = 'fb4b2313b59f4a9ac195910e75e1e169  ./inittab'
 OLD_LINK = 'lrwxrwxrwx 1 AdminFas admin 17 Jan  1  1970 ./services -> /usr/etc/services'
 LATER_LINK = OLD_LINK.replace('Jan  1  1970', 'Oct  5 14:16')
+CHSW_BYTES = base64.b64decode(
+    (Path(__file__).parent / 'fixtures' / 'airos_chsw_wa_8_7_25.b64').read_text().strip(), validate=True)
+
+
+def binary_client(data=CHSW_BYTES, *, status=0):
+    client = MagicMock()
+    stdout, stderr = MagicMock(), MagicMock()
+    stdout.read.return_value = data
+    stdout.channel.recv_exit_status.return_value = status
+    stderr.read.return_value = b''
+    client.exec_command.return_value = (None, stdout, stderr)
+    return client, stdout
+
+
+def test_chsw_fingerprint_uses_exact_binary_without_executing_or_decoding_it():
+    assert len(CHSW_BYTES) == 637
+    assert hashlib.sha256(CHSW_BYTES).hexdigest() == CHSW_CENTER_CONTROL_SHA256
+    # Un décodage UTF-8 avec remplacement ne conserve pas l'empreinte.
+    assert hashlib.sha256(CHSW_BYTES.decode('utf8', 'replace').encode()).hexdigest() != CHSW_CENTER_CONTROL_SHA256
+    client, stdout = binary_client()
+    assert read_chsw_fingerprint(client) == CHSW_CENTER_CONTROL_SHA256
+    client.exec_command.assert_called_once_with(
+        'test -f /bin/chsw && test -x /bin/chsw && cat /bin/chsw', timeout=20)
+    stdout.read.assert_called_once_with(65537)
+    stdout.channel.close.assert_called_once()
+
+
+@pytest.mark.parametrize('data,status', [(b'', 0), (b'x' * 65537, 0), (CHSW_BYTES, 1)],
+                         ids=['empty', 'oversized', 'failed'])
+def test_failed_or_oversized_chsw_read_cannot_recognize_the_helper(data, status):
+    client, stdout = binary_client(data, status=status)
+    with pytest.raises(RuntimeError):
+        read_chsw_fingerprint(client)
+    stdout.channel.close.assert_called_once()
+
+
+def test_native_negative_center_plan_has_correct_control_target_but_needs_driver_check():
+    result = analyze_chsw_target(
+        'kill -1 1\n/bin/chsw -1 5895; iwconfig_code=$?\n'
+        '[ $iwconfig_code -ne 0 ] && iwconfig ath0 commit', 5895, CHSW_CENTER_CONTROL_SHA256)
+    assert result['target_matches'] is True
+    assert result['center_arg'] == -1 and result['control_arg'] == 5895
+    assert result['center_requires_driver_check'] is True
+
+
+@pytest.mark.parametrize('center', [5895, -1, 5135])
+def test_control_target_is_not_confused_with_center(center):
+    result = analyze_chsw_target(f'/bin/chsw {center} 5895', 5895, CHSW_CENTER_CONTROL_SHA256)
+    assert result['target_matches'] is True
+    assert result['center_requires_driver_check'] == (center != 5895)
+    wrong_control = analyze_chsw_target('/bin/chsw 5895 5135', 5895, CHSW_CENTER_CONTROL_SHA256)
+    assert wrong_control['target_matches'] is False
+
+
+@pytest.mark.parametrize('plan', [
+    '', '/bin/chsw -1 5895\n/bin/chsw -1 5135', '# /bin/chsw -1 5895',
+    '/bin/chsw -1 "$target"', '/bin/chsw -1 $(echo 5895)',
+    '/bin/chsw fcc -1 5895', '/bin/chsw -1 5895; reboot',
+    '/bin/chsw -1 5895 extra', '/bin/chsw -1 5895 && /bin/chsw -1 5135',
+    'false && /bin/chsw -1 5895',
+])
+def test_ambiguous_or_nonliteral_calls_do_not_confirm_target(plan):
+    result = analyze_chsw_target(plan, 5895, CHSW_CENTER_CONTROL_SHA256)
+    assert result['target_matches'] is False
+
+
+def test_unknown_helper_cannot_borrow_semantics_from_matching_strings():
+    client, _ = binary_client(CHSW_BYTES + b'changed')
+    unknown_sha = read_chsw_fingerprint(client)
+    result = analyze_chsw_target('/bin/chsw -1 5895', 5895, unknown_sha)
+    assert result['chsw_known'] is False and result['target_matches'] is None
+    assert result['center_arg'] is None and result['control_arg'] is None
 
 
 def test_legacy_manifest_ignores_only_dates_preserving_names_with_spaces():
@@ -150,7 +224,8 @@ def test_saved_review_refuses_when_real_commands_enabled():
     connect.assert_not_called()
 
 
-def responses(*, pending=False, prepare_error=False, preflight_error=False, restored=True):
+def responses(*, pending=False, prepare_error=False, preflight_error=False, restored=True,
+              plan=PLAN):
     commands = []
     reads = {'system': 0}
     def execute(client, command, **options):
@@ -167,14 +242,14 @@ def responses(*, pending=False, prepare_error=False, preflight_error=False, rest
         if command.startswith('set -eu\n'):
             if prepare_error:
                 raise RuntimeError('Préparateur refusé')
-            return PLAN
+            return plan
         raise AssertionError(command)
     return commands, execute
 
 
 @override_settings(FREQUENCY_COMMANDS_VERIFIED=False)
 def test_review_returns_exact_unapproved_plan_with_restored_state():
-    client = MagicMock()
+    client, _ = binary_client()
     commands, execute = responses()
     with patch('apps.monitoring.services.frequency_plan_review.checked_exec', side_effect=execute), \
          patch('apps.monitoring.services.frequency_plan_review.inspect_device', return_value=STATE), \
@@ -185,6 +260,35 @@ def test_review_returns_exact_unapproved_plan_with_restored_state():
     assert result['plan'] == PLAN
     assert result['sha256'] == hashlib.sha256(PLAN.encode()).hexdigest()
     assert not any(cmd.startswith('/bin/sh ') or cmd.startswith('/sbin/cfgmtd ') for cmd in commands)
+    client.close.assert_called_once()
+
+
+@override_settings(FREQUENCY_COMMANDS_VERIFIED=False)
+def test_review_recognizes_field_plan_without_approving_it_or_executing_any_signal():
+    native_plan = PLAN.replace('5895 5895', '-1 5895')
+    client, _ = binary_client()
+    commands, execute = responses(plan=native_plan)
+    with patch('apps.monitoring.services.frequency_plan_review.checked_exec', side_effect=execute), \
+         patch('apps.monitoring.services.frequency_plan_review.inspect_device', return_value=STATE), \
+         patch('apps.monitoring.services.frequency_plan_review.runtime', return_value=STATE):
+        result = review_frequency_plan(MagicMock(return_value=client), Obj(), 5895)
+    assert result['ok'] and result['restored'] and result['target_matches']
+    assert result['chsw_sha256'] == CHSW_CENTER_CONTROL_SHA256
+    assert result['center_requires_driver_check'] and result['execution_blocked']
+    assert not any(cmd.startswith(('kill ', '/bin/chsw ', '/bin/sh ', '/sbin/cfgmtd ')) for cmd in commands)
+    client.close.assert_called_once()
+
+
+@override_settings(FREQUENCY_COMMANDS_VERIFIED=False)
+def test_helper_read_error_prevents_preparation_before_any_writes():
+    client, _ = binary_client(status=1)
+    commands, execute = responses()
+    with patch('apps.monitoring.services.frequency_plan_review.checked_exec', side_effect=execute), \
+         patch('apps.monitoring.services.frequency_plan_review.inspect_device', return_value=STATE):
+        result = review_frequency_plan(MagicMock(return_value=client), Obj(), 5895)
+    assert not result['ok'] and not result['uncertain']
+    assert 'archive' not in result
+    assert commands == ['cat /tmp/system.cfg', 'cat /tmp/running.cfg', PREFLIGHT_SCRIPT]
     client.close.assert_called_once()
 
 
@@ -233,20 +337,22 @@ def test_pending_other_changes_prevent_preparation():
     (STATE, False),
 ])
 def test_review_reports_uncertain_if_final_state_differs(after, restored):
+    client, _ = binary_client()
     commands, execute = responses(restored=restored)
     with patch('apps.monitoring.services.frequency_plan_review.checked_exec', side_effect=execute), \
          patch('apps.monitoring.services.frequency_plan_review.inspect_device', return_value=STATE), \
          patch('apps.monitoring.services.frequency_plan_review.runtime', return_value=after):
-        result = review_frequency_plan(MagicMock(return_value=MagicMock()), Obj(), 5895)
+        result = review_frequency_plan(MagicMock(return_value=client), Obj(), 5895)
     assert not result['ok'] and result['uncertain']
 
 
 @override_settings(FREQUENCY_COMMANDS_VERIFIED=False)
 def test_preparation_error_never_yields_plan_for_approval():
+    client, _ = binary_client()
     commands, execute = responses(prepare_error=True)
     with patch('apps.monitoring.services.frequency_plan_review.checked_exec', side_effect=execute), \
          patch('apps.monitoring.services.frequency_plan_review.inspect_device', return_value=STATE):
-        result = review_frequency_plan(MagicMock(return_value=MagicMock()), Obj(), 5895)
+        result = review_frequency_plan(MagicMock(return_value=client), Obj(), 5895)
     assert not result['ok'] and result['uncertain']
     assert 'plan' not in result
 
@@ -385,12 +491,15 @@ def test_command_blocks_preparation_unless_both_automation_options_off(config):
         review.assert_not_called()
 
 
-def test_command_outputs_review_without_approving_or_changing_database():
+@pytest.mark.parametrize('helper_sha', [CHSW_CENTER_CONTROL_SHA256, 'f' * 64])
+def test_command_outputs_review_without_approving_or_changing_database(helper_sha):
     from apps.monitoring.management.commands.review_frequency_plan import Command
     output = StringIO()
     config = Obj(auto_switch=False, scan_actif=False, save=MagicMock())
-    reviewed = dict(ok=True, freq_before=5135, target=5895, target_matches=True,
-                    execution_blocked=True, sha256='a' * 64, plan=PLAN)
+    native_plan = PLAN.replace('5895 5895', '-1 5895')
+    reviewed = dict(ok=True, freq_before=5135, target=5895,
+                    execution_blocked=True, sha256='a' * 64, plan=native_plan,
+                    **analyze_chsw_target(native_plan, 5895, helper_sha))
     with patch('apps.monitoring.management.commands.review_frequency_plan.NetworkDevice.objects') as devices, \
          patch('apps.monitoring.management.commands.review_frequency_plan.FrequenceConfig.objects') as configs, \
          patch('apps.monitoring.management.commands.review_frequency_plan.review_frequency_plan', return_value=reviewed):
@@ -399,6 +508,13 @@ def test_command_outputs_review_without_approving_or_changing_database():
         Command(stdout=output).handle(device=9, target=5895)
     assert 'NON exécuté' in output.getvalue()
     assert 'Aucune approbation ajoutée' in output.getvalue()
+    if helper_sha == CHSW_CENTER_CONTROL_SHA256:
+        assert 'Cible chsw correspondante : True' in output.getvalue()
+        assert 'centre=-1, contrôle=5895' in output.getvalue()
+        assert 'son acceptation reste à vérifier' in output.getvalue()
+    else:
+        assert 'indéterminée ; programme non reconnu' in output.getvalue()
+        assert 'Cible chsw correspondante : True' not in output.getvalue()
     config.save.assert_not_called()
 
 
