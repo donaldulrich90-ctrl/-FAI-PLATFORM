@@ -19,7 +19,7 @@ def monitor_frequencies():
     """
     from apps.core.models import NetworkDevice
     from apps.monitoring.models import FrequenceConfig, FrequenceMesure
-    from apps.monitoring.services.snmp_ubiquiti import UbiquitiAirMAXSnmpService
+    from apps.monitoring.services.frequency_metrics import fetch_frequency_metrics
     from apps.monitoring.frequency_decision import (
         classify_antenna_state,
         should_change_frequency,
@@ -30,7 +30,7 @@ def monitor_frequencies():
 
     configs = (
         FrequenceConfig.objects.select_related("device")
-        .filter(auto_switch=True, device__is_active=True)
+        .filter(device__is_active=True)
     )
 
     from django.utils import timezone
@@ -43,10 +43,11 @@ def monitor_frequencies():
     for cfg in configs:
         device = cfg.device
         try:
-            svc = UbiquitiAirMAXSnmpService(device)
-            metrics = svc.fetch_full_metrics()
+            metrics = fetch_frequency_metrics(device)
+            if not metrics.online or metrics.error:
+                continue
         except Exception as exc:
-            logger.warning("monitor_frequencies: SNMP(%s) échoué — %s", device, exc)
+            logger.warning("monitor_frequencies: Mesures RF(%s) échoué — %s", device, exc)
             continue
 
         snr = None

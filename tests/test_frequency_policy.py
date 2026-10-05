@@ -78,11 +78,11 @@ def test_change_verification_and_rollback(improved, restored):
          patch('apps.monitoring.models.HistoriqueFrequence.objects') as history, \
          patch('apps.monitoring.services.ubiquiti_ssh.read_current_frequency', return_value={'ok':True,'freq_mhz':5180}), \
          patch('apps.monitoring.services.ubiquiti_ssh.set_frequency', return_value={'ok':True}) as setter, \
-         patch('apps.monitoring.services.snmp_ubiquiti.UbiquitiAirMAXSnmpService') as service, \
+         patch('apps.monitoring.services.frequency_metrics.fetch_frequency_metrics') as service, \
          patch('apps.monitoring.frequency_scanner.record_measurement'), \
          patch('apps.notifications.whatsapp.send_admin_alert'), patch('time.sleep'):
         links.filter.return_value.first.return_value = None
-        service.return_value.fetch_full_metrics.side_effect = [after, returned]
+        service.side_effect = [after, returned]
         ok = execute_frequency_change(device, cfg, 5200, baseline=metrics())
         assert ok == improved
         assert [call.args[1] for call in setter.call_args_list] == ([5200] if improved else [5200, 5180])

@@ -27,6 +27,12 @@ class Command(BaseCommand):
             self.stdout.write('Identifiant de démarrage lisible ; configuration 20 MHz cohérente.')
             self.stdout.write('Préparateur rapide présent ; aucun mode test/force/application en cours détecté.')
             self.stdout.write('Aucun plan rapide n’a été préparé, approuvé ou exécuté par ce diagnostic.')
+            from apps.monitoring.services.frequency_metrics import fetch_frequency_metrics
+            metrics = fetch_frequency_metrics(device)
+            if metrics.error or not metrics.online:
+                raise CommandError('Accès de gestion réussi, mais mesures RF/clients indisponibles.')
+            snr = metrics.rssi_dbm - metrics.noise_floor_dbm if metrics.rssi_dbm is not None and metrics.noise_floor_dbm is not None else None
+            self.stdout.write(f"Mesures RF : signal={metrics.rssi_dbm} dBm, bruit={metrics.noise_floor_dbm} dBm, SNR={snr} dB, clients={metrics.client_count}")
             self.stdout.write('Diagnostic en lecture seule réussi. Compatibilité terrain NON prouvée.')
             self.stdout.write('Aucune écriture ni application de configuration effectuée.')
         except Exception as exc:

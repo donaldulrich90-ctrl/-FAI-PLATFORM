@@ -151,7 +151,7 @@ def execute_frequency_change(
 
     automatic = declencheur != "manuel"
     from apps.monitoring.frequency_policy import verified_improvement
-    from apps.monitoring.services.snmp_ubiquiti import UbiquitiAirMAXSnmpService
+    from apps.monitoring.services.frequency_metrics import fetch_frequency_metrics
     from apps.monitoring.services.ubiquiti_ssh import allowed_frequencies
     if automatic and not dry_run:
         # Ne pas modifier les deux extrémités PtP via cette politique PtMP.
@@ -195,7 +195,7 @@ def execute_frequency_change(
             time.sleep(60)
             after = None
             try:
-                after = UbiquitiAirMAXSnmpService(device).fetch_full_metrics()
+                after = fetch_frequency_metrics(device)
                 success = verified_improvement(baseline, after, new_freq)
             except Exception as exc:
                 success = False
@@ -211,7 +211,7 @@ def execute_frequency_change(
                 notes += f" Amélioration non confirmée ; retour demandé à {freq_avant} MHz."
                 time.sleep(60)
                 try:
-                    restored = UbiquitiAirMAXSnmpService(device).fetch_full_metrics()
+                    restored = fetch_frequency_metrics(device)
                     rollback_ok = (restored.online and not restored.error
                         and restored.freq_mhz == freq_avant
                         and restored.client_count is not None
