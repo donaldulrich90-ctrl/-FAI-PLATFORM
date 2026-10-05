@@ -13,6 +13,11 @@ canal proposé.
 - `FREQUENCY_COMMANDS_VERIFIED=False`, `auto_switch=False`, `scan_actif=False`.
 - Aucun autre administrateur ne doit appliquer des changements dans airOS pendant l'examen.
 
+Les outils nécessaires sont contrôlés par SSH en lecture seule, puis à nouveau
+au début du script, avant de créer les sauvegardes. La comparaison utilise
+`diff`, sans dépendre de `cmp` qui peut être absent de BusyBox. Si un outil manque,
+la préparation est refusée ; aucun outil n'est installé sur l'antenne.
+
 Comparer d'abord les candidats dans AirMagic. Une fréquence disponible dans
 l'interface ou dans les listes de recherche des clients ne prouve pas que son
 utilisation est autorisée pour l'installation. Confirmer cette autorisation

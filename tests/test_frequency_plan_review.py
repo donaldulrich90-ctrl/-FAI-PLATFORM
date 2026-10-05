@@ -10,7 +10,7 @@ import pytest
 from django.test import override_settings
 from django.core.management.base import CommandError
 
-from apps.monitoring.services.frequency_plan_review import preparation_script, review_frequency_plan
+from apps.monitoring.services.frequency_plan_review import PREFLIGHT_SCRIPT, preparation_script, review_frequency_plan
 
 BOOT = '12345678-1234-1234-1234-123456789012'
 STATE = {'freq_mhz': 5135, 'boot_id': BOOT}
@@ -18,7 +18,7 @@ CFG = 'radio.1.freq=5135\nradio.1.chanbw=20'
 PLAN = 'kill -1 1\n/bin/chsw 5895 5895; iwconfig_code=$?'
 
 
-def responses(*, pending=False, prepare_error=False, restored=True):
+def responses(*, pending=False, prepare_error=False, preflight_error=False, restored=True):
     commands = []
     reads = {'system': 0}
     def execute(client, command, **options):
@@ -28,6 +28,10 @@ def responses(*, pending=False, prepare_error=False, restored=True):
             return CFG if restored or reads['system'] == 1 else CFG.replace('5135', '5895')
         if command == 'cat /tmp/running.cfg':
             return CFG + ('\nother=pending' if pending else '')
+        if command == PREFLIGHT_SCRIPT:
+            if preflight_error:
+                raise RuntimeError('Outil airOS requis absent : diff ; préparation refusée avant toute écriture.')
+            return ''
         if command.startswith('set -eu\n'):
             if prepare_error:
                 raise RuntimeError('Préparateur refusé')
@@ -49,6 +53,20 @@ def test_review_returns_exact_unapproved_plan_with_restored_state():
     assert result['plan'] == PLAN
     assert result['sha256'] == hashlib.sha256(PLAN.encode()).hexdigest()
     assert not any(cmd.startswith('/bin/sh ') or cmd.startswith('/sbin/cfgmtd ') for cmd in commands)
+    client.close.assert_called_once()
+
+
+@override_settings(FREQUENCY_COMMANDS_VERIFIED=False)
+def test_missing_dependency_prevents_preparation_without_uncertain_restoration():
+    client = MagicMock()
+    commands, execute = responses(preflight_error=True)
+    with patch('apps.monitoring.services.frequency_plan_review.checked_exec', side_effect=execute), \
+         patch('apps.monitoring.services.frequency_plan_review.inspect_device', return_value=STATE):
+        result = review_frequency_plan(MagicMock(return_value=client), Obj(), 5895)
+    assert not result['ok'] and not result['uncertain']
+    assert 'archive' not in result and 'plan' not in result
+    assert 'avant toute écriture' in result['message']
+    assert commands == ['cat /tmp/system.cfg', 'cat /tmp/running.cfg', PREFLIGHT_SCRIPT]
     client.close.assert_called_once()
 
 
@@ -107,7 +125,10 @@ def test_remote_backup_directory_is_restricted(directory):
         preparation_script(5895, directory)
 
 
-@pytest.mark.parametrize('mode', ['success', 'refused', 'missing', 'hup', 'new_file', 'changed_running', 'without_old_plan'])
+@pytest.mark.parametrize('mode', [
+    'success', 'refused', 'missing', 'hup', 'new_file', 'changed_running', 'without_old_plan',
+    'without_cmp', 'without_diff', 'without_tar', 'without_md5sum', 'without_sort', 'diff_error',
+])
 def test_remote_transaction_restores_files_in_isolated_shell(tmp_path, mode):
     # Exécuter le vrai shell de préparation dans un faux système de fichiers.
     # Aucune commande d'application n'est simulée comme exécutée.
@@ -129,6 +150,7 @@ def test_remote_transaction_restores_files_in_isolated_shell(tmp_path, mode):
         # GNU tar interprète C: comme une archive distante ; utiliser le chemin MSYS.
         root = '/' + root[0].lower() + root[2:]
     stub = '#!/bin/sh\n'
+    stub += f"echo invoked > {root}/generator-invoked\n"
     stub += f"echo changed > {root}/etc/inittab\n"
     if mode == 'new_file':
         stub += f"echo new > {root}/etc/added.conf\n"
@@ -146,6 +168,15 @@ def test_remote_transaction_restores_files_in_isolated_shell(tmp_path, mode):
     script = script.replace('/sbin/ubntconf', root + '/ubntconf')
     script = script.replace('/tmp/', root + '/tmp/')
     script = script.replace('cd /etc', 'cd ' + root + '/etc').replace('-C /etc', '-C ' + root + '/etc')
+    missing_dependency = mode in ('without_diff', 'without_tar', 'without_md5sum', 'without_sort')
+    if missing_dependency:
+        utility = mode.removeprefix('without_')
+        # Masquer un outil pendant le contrôle, sans modifier le système hôte.
+        script = f'command() {{ case "$*" in "-v {utility}") return 127;; *) return 0;; esac; }}\n' + script
+    elif mode == 'without_cmp':
+        script = 'cmp() { echo "cmp unavailable" >&2; return 127; }\n' + script
+    elif mode == 'diff_error':
+        script = 'diff() { echo "comparison unavailable" >&2; return 2; }\n' + script
     # Toujours vérifier qu'aucun accès aux vrais fichiers airOS ne subsiste.
     assert ' /etc' not in script and '=/tmp/' not in script and ' /tmp/' not in script
     outcome = subprocess.run([str(shell)], input=script, text=True, capture_output=True, timeout=20)
@@ -160,11 +191,17 @@ def test_remote_transaction_restores_files_in_isolated_shell(tmp_path, mode):
         assert (tmp / ('fai-review-' + 'a' * 32) / 'etc.tar').exists()
         assert 'Restauration non confirmée' in outcome.stderr
     else:
-        assert outcome.returncode == (0 if mode in ('success', 'without_old_plan') else 1), outcome.stderr
+        expected = 0 if mode in ('success', 'without_old_plan', 'without_cmp') else (2 if mode == 'diff_error' else 1)
+        assert outcome.returncode == expected, outcome.stderr
         assert not (tmp / ('fai-review-' + 'a' * 32)).exists()
         assert not (tmp / 'fai-frequency-review.lock').exists()
-    if mode in ('success', 'without_old_plan'):
+    if mode in ('success', 'without_old_plan', 'without_cmp'):
         assert outcome.stdout.strip() == PLAN
+    if missing_dependency or mode == 'diff_error':
+        assert not (tmp_path / 'generator-invoked').exists()
+        assert not outcome.stdout
+    if missing_dependency:
+        assert f'Outil airOS requis absent : {utility}' in outcome.stderr
     if mode != 'changed_running':
         assert (tmp / 'running.cfg').read_text(encoding='utf-8') == CFG + '\n'
 

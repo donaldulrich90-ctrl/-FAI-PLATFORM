@@ -12,6 +12,19 @@ from django.conf import settings
 from .airos_soft_apply import checked_exec, inspect_device, runtime
 
 
+# BusyBox est compilé avec une sélection d'outils : ne pas supposer que cmp existe.
+# diff sans option suffit à comparer les fichiers et est utilisé par airOS lui-même.
+PREFLIGHT_SCRIPT = r'''set -eu
+for utility in cat cp diff find grep ls md5sum mkdir rm rmdir sed sort tar; do
+    if ! command -v "$utility" >/dev/null 2>&1; then
+        echo "Outil airOS requis absent : $utility ; préparation refusée avant toute écriture." >&2
+        exit 1
+    fi
+done
+test -x /sbin/ubntconf
+'''
+
+
 def preparation_script(target, directory):
     """Une seule session shell ; le piège restaure même après un échec/HUP.
 
@@ -23,14 +36,16 @@ def preparation_script(target, directory):
         raise ValueError('Fréquence proposée invalide.')
     if not re.fullmatch(r'/tmp/fai-review-[0-9a-f]{32}', directory):
         raise ValueError('Répertoire de préparation invalide.')
-    return r'''set -eu
-umask 077
+    return PREFLIGHT_SCRIPT + r'''umask 077
 work=__DIRECTORY__
 lock=/tmp/fai-frequency-review.lock
 mkdir "$lock" || { echo 'Autre préparation en cours.' >&2; exit 1; }
 if ! mkdir "$work"; then rmdir "$lock"; exit 1; fi
 staged=0
 had_plan=0
+same_file() {
+    diff "$1" "$2" >/dev/null
+}
 manifest() {
     (cd /etc && {
         find . -type f -exec md5sum '{}' ';'
@@ -43,18 +58,18 @@ finish() {
     restored=1
     if [ "$staged" = 1 ]; then
         cp -p "$work/system.cfg" /tmp/system.cfg || restored=0
-        cmp -s "$work/system.cfg" /tmp/system.cfg || restored=0
-        cmp -s "$work/running.cfg" /tmp/running.cfg || restored=0
+        same_file "$work/system.cfg" /tmp/system.cfg || restored=0
+        same_file "$work/running.cfg" /tmp/running.cfg || restored=0
         if ! manifest > "$work/etc.after"; then
             restored=0
-        elif ! cmp -s "$work/etc.before" "$work/etc.after"; then
+        elif ! same_file "$work/etc.before" "$work/etc.after"; then
             tar -xf "$work/etc.tar" -C /etc || restored=0
             manifest > "$work/etc.after" || restored=0
-            cmp -s "$work/etc.before" "$work/etc.after" || restored=0
+            same_file "$work/etc.before" "$work/etc.after" || restored=0
         fi
         if [ "$had_plan" = 1 ]; then
             cp -p "$work/diff.before" /tmp/diff.sh || restored=0
-            cmp -s "$work/diff.before" /tmp/diff.sh || restored=0
+            same_file "$work/diff.before" /tmp/diff.sh || restored=0
         else
             rm -f /tmp/diff.sh || restored=0
         fi
@@ -84,12 +99,12 @@ fi
 manifest > "$work/etc.before"
 tar -cf "$work/etc.tar" -C /etc .
 manifest > "$work/etc.after"
-cmp -s "$work/etc.before" "$work/etc.after"
-cmp -s "$work/system.cfg" /tmp/system.cfg
-cmp -s "$work/running.cfg" /tmp/running.cfg
+same_file "$work/etc.before" "$work/etc.after"
+same_file "$work/system.cfg" /tmp/system.cfg
+same_file "$work/running.cfg" /tmp/running.cfg
 staged=1
-sed -i 's/^radio.1.freq=[0-9][0-9]*$/radio.1.freq=__TARGET__/' /tmp/system.cfg
-test "$(grep -E '^radio.1.freq=' /tmp/system.cfg)" = 'radio.1.freq=__TARGET__'
+sed -i 's/^radio\.1\.freq=[0-9][0-9]*$/radio.1.freq=__TARGET__/' /tmp/system.cfg
+test "$(grep -E '^radio\.1\.freq=' /tmp/system.cfg)" = 'radio.1.freq=__TARGET__'
 # Supprimer l'ancien plan avant génération : ne jamais présenter un plan périmé.
 rm -f /tmp/diff.sh
 if ! /sbin/ubntconf -p /tmp/running.cfg > "$work/prepare.log" 2>&1; then
@@ -119,6 +134,9 @@ def review_frequency_plan(connect, device, target):
         running = checked_exec(client, 'cat /tmp/running.cfg')
         if not system or sorted(system.replace('\r', '').splitlines()) != sorted(running.replace('\r', '').splitlines()):
             return {'ok': False, 'message': 'Autres modifications en attente : préparation refusée.'}
+        # Une session en lecture seule permet de signaler une dépendance absente
+        # sans annoncer à tort une restauration incertaine ou une archive créée.
+        checked_exec(client, PREFLIGHT_SCRIPT)
         entered_preparation = True
         plan = checked_exec(client, preparation_script(target, directory), timeout=120)
         after = runtime(client)
@@ -139,8 +157,10 @@ def review_frequency_plan(connect, device, target):
                 'target_matches': matches == [(str(target), str(target))],
                 'execution_blocked': blocked, 'restored': True}
     except Exception as exc:
-        return {'ok': False, 'uncertain': entered_preparation, 'archive': directory,
-                'message': str(exc)[:240]}
+        result = {'ok': False, 'uncertain': entered_preparation, 'message': str(exc)[:240]}
+        if entered_preparation:
+            result['archive'] = directory
+        return result
     finally:
         if client is not None:
             client.close()
