@@ -12,8 +12,8 @@ from django.conf import settings
 SOFT_APPLY = '/usr/etc/rc.d/rc.softrestart'
 
 
-def checked_exec(client, command):
-    _, stdout, stderr = client.exec_command(command, timeout=20)
+def checked_exec(client, command, *, timeout=20):
+    _, stdout, stderr = client.exec_command(command, timeout=timeout)
     out = stdout.read().decode('utf-8', errors='replace')
     err = stderr.read().decode('utf-8', errors='replace')
     if stdout.channel.recv_exit_status() != 0:
