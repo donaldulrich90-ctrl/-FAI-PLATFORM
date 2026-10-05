@@ -27,7 +27,11 @@
 <div class="page-header anim-up" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
   <div>
     <h1 class="page-title">Gestion Intelligente des Fréquences</h1>
-    <p class="page-sub">Surveillance automatique SNR/signal et basculement de fréquences Ubiquiti.</p>
+    <p class="page-sub">Une fréquence stable est conservée. Un changement exige plusieurs mesures de mauvaise qualité et une alternative récemment mesurée.</p>
+    <p class="page-sub">Préférence : principale, puis secours 1, 2 et 3. Les fréquences sans mesures sont exclues. Aucun scan avec coupures n'est lancé.</p>
+    {% if not commands_verified and not dry_run %}
+    <p class="page-sub">Les changements réels, manuels et automatiques, sont bloqués jusqu'à validation d'une méthode sans redémarrage. Auto ON seul ne suffit pas.</p>
+    {% endif %}
   </div>
   <div style="display:flex;gap:10px;align-items:center;">
     {% if dry_run %}
@@ -265,7 +269,7 @@
       </select>
     </div>
     <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:var(--amber);">
-      ⚠ L'antenne redémarrera (~30 secondes d'indisponibilité). Pour les liens PtP, les deux extrémités seront changées.
+      Application douce sans commande de redémarrage complet, réservée aux appareils validés. Une coupure radio reste possible.
     </div>
     <div style="display:flex;gap:10px;justify-content:flex-end;">
       <button type="button" class="btn btn-ghost btn-md" onclick="closeChange()">Annuler</button>
@@ -280,7 +284,7 @@
 const CSRF = getCsrf();
 
 function toggleAuto(pk, btn) {
-  fetch(`/monitoring/antennes/${pk}/frequences/auto/`, {method:'POST', body: (() => { const f=new FormData(); f.append('csrfmiddlewaretoken', CSRF); return f; })()})
+  fetch(`/antennes/${pk}/frequences/auto/`, {method:'POST', body: (() => { const f=new FormData(); f.append('csrfmiddlewaretoken', CSRF); return f; })()})
     .then(r => r.json())
     .then(d => {
       if (!d.ok) { showToast('Erreur: ' + (d.error||'inconnue'), 'error'); return; }
@@ -322,7 +326,7 @@ function saveConfig() {
   fd.append('seuil_snr_min', document.getElementById('cfg-snr-min').value);
   fd.append('seuil_signal_min', document.getElementById('cfg-signal-min').value);
   fd.append('auto_switch', document.getElementById('cfg-auto-switch').checked ? '1' : '0');
-  fetch(`/monitoring/antennes/${pk}/frequences/config/`, {method:'POST', body:fd})
+  fetch(`/antennes/${pk}/frequences/config/`, {method:'POST', body:fd})
     .then(r => r.json())
     .then(d => {
       if (d.ok) { showToast('Configuration enregistrée.', 'success'); closeConfig(); setTimeout(() => location.reload(), 800); }
@@ -346,7 +350,7 @@ function execChange() {
   fd.append('csrfmiddlewaretoken', CSRF);
   fd.append('freq_mhz', freq);
   showToast('Changement en cours…', 'info');
-  fetch(`/monitoring/antennes/${pk}/frequences/changer/`, {method:'POST', body:fd})
+  fetch(`/antennes/${pk}/frequences/changer/`, {method:'POST', body:fd})
     .then(r => r.json())
     .then(d => {
       if (d.ok) { showToast('Fréquence changée vers ' + freq + ' MHz.', 'success'); closeChange(); setTimeout(() => location.reload(), 1500); }

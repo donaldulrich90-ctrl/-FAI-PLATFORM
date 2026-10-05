@@ -18,7 +18,7 @@ def monitor_frequencies():
     Exécutée toutes les 5 minutes via django-q2.
     """
     from apps.core.models import NetworkDevice
-    from apps.monitoring.models import FrequenceConfig
+    from apps.monitoring.models import FrequenceConfig, FrequenceMesure
     from apps.monitoring.services.snmp_ubiquiti import UbiquitiAirMAXSnmpService
     from apps.monitoring.frequency_decision import (
         classify_antenna_state,
@@ -32,6 +32,10 @@ def monitor_frequencies():
         FrequenceConfig.objects.select_related("device")
         .filter(auto_switch=True, device__is_active=True)
     )
+
+    from django.utils import timezone
+    from apps.monitoring.frequency_policy import persistent_interference
+    from django.db import transaction
 
     checked = 0
     changed = 0
@@ -63,6 +67,14 @@ def monitor_frequencies():
             device, state, snr, metrics.rssi_dbm,
         )
 
+        samples = list(FrequenceMesure.objects.filter(
+            device=device, source="passif",
+        )[:3])
+        if not metrics.online or metrics.error or not persistent_interference(
+            samples, metrics.freq_mhz, timezone.now(), cfg.seuil_snr_min,
+        ):
+            continue
+
         if not should_change_frequency(device, cfg):
             continue
 
@@ -74,18 +86,26 @@ def monitor_frequencies():
         raison = "interference" if state in ("critique", "urgence") else "snr_faible"
         declencheur = "urgence" if state == "urgence" else "auto"
 
-        ok = execute_frequency_change(
-            device=device,
-            config=cfg,
-            new_freq=new_freq,
-            raison=raison,
-            declencheur=declencheur,
-            snr_avant=snr,
-            signal_avant=metrics.rssi_dbm,
-        )
+        # PostgreSQL sérialise les décisions entre workers via la configuration.
+        with transaction.atomic():
+            cfg = FrequenceConfig.objects.select_for_update().get(pk=cfg.pk)
+            if not should_change_frequency(device, cfg):
+                continue
+            ok = execute_frequency_change(
+                device=device,
+                config=cfg,
+                new_freq=new_freq,
+                raison=raison,
+                declencheur=declencheur,
+                snr_avant=snr,
+                signal_avant=metrics.rssi_dbm,
+                baseline=metrics,
+            )
         if ok:
             changed += 1
             logger.info("monitor_frequencies: %s → %d MHz (score=%.2f)", device, new_freq, score)
+        # Un seul essai par passage : borne la durée et les coupures simultanées.
+        break
 
     logger.info("monitor_frequencies terminé : %d antennes vérifiées, %d changements", checked, changed)
 

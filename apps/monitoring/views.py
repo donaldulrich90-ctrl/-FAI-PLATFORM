@@ -395,7 +395,8 @@ def antenna_freq_change(request: HttpRequest, pk: int):
             device,
             "freq_change",
             target=str(freq_mhz),
-            command_sent=f"cfg -s radio.1.freq={freq_mhz} && cfg -c && reboot",
+            command_sent=(f"Simulation vers {freq_mhz} MHz" if dry_run else
+                          f"Demande d'application douce vers {freq_mhz} MHz : {result.get('message', '')}"),
             success=result["ok"],
             error_message="" if result["ok"] else result["message"],
             dry_run=dry_run,
@@ -465,6 +466,7 @@ def frequency_dashboard(request: HttpRequest):
         "recent_history": recent_history,
         "frequencies": ALLOWED_FREQUENCIES_5GHZ,
         "dry_run": getattr(__import__("django.conf", fromlist=["settings"]).settings, "ROUTER_CONTROL_DRY_RUN", False),
+        "commands_verified": getattr(__import__("django.conf", fromlist=["settings"]).settings, "FREQUENCY_COMMANDS_VERIFIED", False),
     })
 
 

@@ -209,8 +209,8 @@ Q_CLUSTER = {
     "name": "faso_isp",
     "orm": "default",
     "workers": 2,
-    "timeout": 120,
-    "retry": 300,
+    "timeout": 600,
+    "retry": 900,
     "schedule_check": 10,
     "catch_up": False,
     "label": "Planificateur",
@@ -258,3 +258,17 @@ FREQUENCY_MAX_CHANGES_PER_HOUR = int(os.environ.get("FREQUENCY_MAX_CHANGES_PER_H
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "")
 # Base de l'API CinetPay (ne changez que pour un environnement dédié).
 CINETPAY_API_BASE = os.environ.get("CINETPAY_API_BASE", "https://api-checkout.cinetpay.com/v2")
+FREQUENCY_COMMANDS_VERIFIED = _env_bool("FREQUENCY_COMMANDS_VERIFIED", "0")
+FREQUENCY_MIN_GAIN_DB = int(os.environ.get("FREQUENCY_MIN_GAIN_DB", "3"))
+FREQUENCY_MEASUREMENT_MAX_AGE_HOURS = int(os.environ.get("FREQUENCY_MEASUREMENT_MAX_AGE_HOURS", "24"))
+# JSON : {"identifiant_appareil": [fréquences validées sur le pays/modèle]}.
+# Vide par défaut : aucune application réelle autorisée.
+import json as _frequency_json
+try:
+    FREQUENCY_SOFT_APPLY_ALLOWED = _frequency_json.loads(os.environ.get("FREQUENCY_SOFT_APPLY_ALLOWED", "{}"))
+except (ValueError, TypeError):
+    FREQUENCY_SOFT_APPLY_ALLOWED = {}
+try:
+    FREQUENCY_FAST_APPLY_PLAN_HASHES = _frequency_json.loads(os.environ.get("FREQUENCY_FAST_APPLY_PLAN_HASHES", "{}"))
+except (ValueError, TypeError):
+    FREQUENCY_FAST_APPLY_PLAN_HASHES = {}

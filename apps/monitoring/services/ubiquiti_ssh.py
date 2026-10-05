@@ -3,9 +3,8 @@ Contrôle SSH distant des antennes Ubiquiti airOS AC.
 
 Supporte : Rocket AC, NanoBeam AC, LiteBeam AC, etc.
 Commandes airOS AC :
-  - Lecture fréquence : cfg show | grep -i freq
-  - Écriture          : cfg -s 'radio.1.freq=XXXX' && cfg -c
-  - Redémarrage       : reboot
+  - Lecture fréquence : iwconfig ath0 (fréquence réellement en service)
+  - Application douce : rc.softrestart, uniquement pour les appareils validés
 
 SÉCURITÉ : utilise ROUTER_CONTROL_DRY_RUN pour les tests.
 """
@@ -14,7 +13,6 @@ from __future__ import annotations
 import logging
 import os
 import re
-import time
 from typing import TYPE_CHECKING
 
 import paramiko
@@ -65,6 +63,9 @@ class UbiquitiSshError(Exception):
 
 
 def _resolve_password(device: "NetworkDevice") -> str | None:
+    if getattr(device, "encrypted_password", ""):
+        from apps.core.services.routeros_client import resolve_device_credential
+        return resolve_device_credential(device)
     hint = (device.password_hint or "").strip()
     if hint.startswith("env:"):
         return os.environ.get(hint[4:].strip())
@@ -72,7 +73,7 @@ def _resolve_password(device: "NetworkDevice") -> str | None:
         val = os.environ.get(hint)
         if val:
             return val
-    return os.environ.get("UBIQUITI_SSH_PASSWORD", None)
+    return os.environ.get("UBIQUITI_SSH_PASSWORD") or os.environ.get("AIREOS_SSH_PASSWORD")
 
 
 def _build_client(device: "NetworkDevice") -> paramiko.SSHClient:
@@ -100,11 +101,19 @@ def _exec(client: paramiko.SSHClient, cmd: str, timeout: int = SSH_TIMEOUT) -> t
 def _connect(device: "NetworkDevice") -> paramiko.SSHClient:
     client = _build_client(device)
     password = _resolve_password(device)
-    username = device.username or "ubnt"
+    username = getattr(device, "aireos_username", "") or device.username or "ubnt"
     port = device.ssh_port or 22
+    host = device.management_host
+    parent = getattr(device, "parent_mikrotik", None)
+    forwarded = getattr(device, "ssh_forward_port", None)
+    if parent is not None and forwarded:
+        if not parent.is_active:
+            client.close()
+            raise UbiquitiSshError("MikroTik parent désactivé.")
+        host, port = parent.management_host, forwarded
     try:
         client.connect(
-            hostname=device.management_host,
+            hostname=host,
             port=port,
             username=username,
             password=password,
@@ -114,7 +123,7 @@ def _connect(device: "NetworkDevice") -> paramiko.SSHClient:
         )
     except Exception as exc:
         client.close()
-        raise UbiquitiSshError(f"Connexion SSH échouée ({device.management_host}:{port}) : {exc}") from exc
+        raise UbiquitiSshError(f"Connexion SSH échouée ({host}:{port}). Vérifier accès et identifiants.") from exc
     return client
 
 
@@ -138,74 +147,41 @@ def read_current_frequency(device: "NetworkDevice") -> dict:
     Lit la fréquence radio actuelle via SSH.
     Retourne {'ok': bool, 'freq_mhz': int|None, 'raw': str, 'message': str}
     """
+    client = None
     try:
         client = _connect(device)
-        out, _err = _exec(client, "cfg show | grep -i freq")
-        client.close()
-    except UbiquitiSshError as exc:
+        from .airos_soft_apply import checked_exec
+        out = checked_exec(client, "iwconfig ath0")
+        m = re.search(r"Frequency[:=]\s*(\d+(?:\.\d+)?)\s*GHz", out, re.I)
+        freq = round(float(m.group(1)) * 1000) if m else None
+        return {"ok": freq is not None, "freq_mhz": freq, "raw": out,
+                "message": f"Fréquence en service : {freq} MHz" if freq else "Fréquence en service illisible."}
+    except Exception as exc:
         return {"ok": False, "freq_mhz": None, "raw": "", "message": str(exc)}
+    finally:
+        if client is not None:
+            client.close()
 
-    freq_mhz: int | None = None
 
-    # Cherche radio.1.freq=XXXX en premier
-    m = re.search(r"radio\.1\.freq\s*=\s*(\d+)", out)
-    if m:
-        freq_mhz = int(m.group(1))
-    else:
-        # Fallback: cherche la première valeur numérique ressemblant à une fréquence 5 GHz
-        m2 = re.search(r"\b(5[1-8]\d{2})\b", out)
-        if m2:
-            freq_mhz = int(m2.group(1))
-
-    return {
-        "ok": True,
-        "freq_mhz": freq_mhz,
-        "raw": out,
-        "message": f"Fréquence lue : {freq_mhz} MHz" if freq_mhz else "Fréquence non trouvée dans la config.",
-    }
+def allowed_frequencies(device):
+    """Liste validée par appareil ; ne remplace pas le contrôle du pays sur airOS."""
+    mapping = getattr(settings, "FREQUENCY_SOFT_APPLY_ALLOWED", {})
+    values = mapping.get(str(getattr(device, "pk", "")), []) if isinstance(mapping, dict) else []
+    if not isinstance(values, list):
+        return set()
+    return {f for f in values if type(f) is int and 4900 <= f <= 5900}
 
 
 def set_frequency(device: "NetworkDevice", freq_mhz: int) -> dict:
-    """
-    Change la fréquence radio et redémarre l'antenne.
-
-    IMPORTANT : Pour les liaisons PtP, changer l'extrémité DISTANTE en premier.
-    L'antenne redémarre (~30 s d'indisponibilité).
-
-    Retourne {'ok': bool, 'message': str}
-    """
-    if freq_mhz not in ALLOWED_FREQ_VALUES:
-        return {
-            "ok": False,
-            "message": f"Fréquence {freq_mhz} MHz non autorisée. Valeurs acceptées : {sorted(ALLOWED_FREQ_VALUES)}",
-        }
-
-    dry_run: bool = getattr(settings, "ROUTER_CONTROL_DRY_RUN", False)
-    if dry_run:
-        logger.info("[DRY-RUN] set_frequency(%s, %d MHz) — aucune commande envoyée.", device, freq_mhz)
+    """Application douce, uniquement pour les appareils et canaux validés."""
+    if type(freq_mhz) is not int or not 4900 <= freq_mhz <= 5900:
+        return {"ok": False, "message": f"Fréquence {freq_mhz} MHz non autorisée."}
+    if getattr(settings, "ROUTER_CONTROL_DRY_RUN", False):
         return {"ok": True, "message": f"[DRY-RUN] Fréquence {freq_mhz} MHz simulée (aucun changement réel)."}
-
-    try:
-        client = _connect(device)
-        # Appliquer le réglage dans la config persistante
-        set_cmd = f"cfg -s 'radio.1.freq={freq_mhz}' && cfg -c"
-        out_set, err_set = _exec(client, set_cmd)
-        logger.info("set_frequency cfg output: %r / %r", out_set, err_set)
-
-        # Laisser 1 s avant le reboot pour que cfg -c finisse d'écrire
-        time.sleep(1)
-
-        out_rb, err_rb = _exec(client, "reboot", timeout=8)
-        logger.info("set_frequency reboot output: %r / %r", out_rb, err_rb)
-        client.close()
-    except UbiquitiSshError as exc:
-        return {"ok": False, "message": str(exc)}
-    except Exception as exc:
-        return {"ok": False, "message": f"Erreur inattendue : {exc}"}
-
-    return {
-        "ok": True,
-        "message": (
-            f"Fréquence {freq_mhz} MHz appliquée. L'antenne redémarre (~30 secondes d'indisponibilité)."
-        ),
-    }
+    if not getattr(settings, "FREQUENCY_COMMANDS_VERIFIED", False) or freq_mhz not in allowed_frequencies(device):
+        return {"ok": False, "blocked": True, "message": (
+            "Application sans redémarrage non validée pour cet appareil et cette fréquence. "
+            "Aucune commande de changement envoyée."
+        )}
+    from .airos_soft_apply import apply_frequency
+    return apply_frequency(_connect, device, freq_mhz)

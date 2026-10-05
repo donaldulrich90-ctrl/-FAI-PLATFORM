@@ -64,6 +64,11 @@ def should_change_frequency(device: "NetworkDevice", config: "FrequenceConfig") 
         return False
     if not getattr(settings, "FREQUENCY_AUTO_SWITCH", True):
         return False
+    if not getattr(settings, "ROUTER_CONTROL_DRY_RUN", False) and not getattr(
+        settings, "FREQUENCY_COMMANDS_VERIFIED", False
+    ):
+        logger.warning("Automatisation réelle bloquée : commandes airOS non validées")
+        return False
 
     now = timezone.now()
     cooldown = getattr(settings, "FREQUENCY_CHANGE_COOLDOWN_MINUTES", 15)
@@ -102,6 +107,7 @@ def execute_frequency_change(
     declencheur: str = "auto",
     snr_avant: float | None = None,
     signal_avant: float | None = None,
+    baseline=None,
 ) -> bool:
     """
     Exécute le changement de fréquence et enregistre l'historique.
@@ -143,27 +149,81 @@ def execute_frequency_change(
         or PtPLink.objects.filter(device_b=device).first()
     )
 
-    success = True
-    if ptp_link and not dry_run:
-        remote_device = ptp_link.device_b if ptp_link.device_a == device else ptp_link.device_a
-        logger.info("PtP détecté — changement côté distant (%s) en premier", remote_device)
-        res_remote = set_frequency(remote_device, new_freq)
-        if not res_remote.get("ok"):
-            logger.error("Changement distant échoué : %s", res_remote.get("message"))
-            success = False
-        else:
+    automatic = declencheur != "manuel"
+    from apps.monitoring.frequency_policy import verified_improvement
+    from apps.monitoring.services.snmp_ubiquiti import UbiquitiAirMAXSnmpService
+    from apps.monitoring.services.ubiquiti_ssh import allowed_frequencies
+    if automatic and not dry_run:
+        # Ne pas modifier les deux extrémités PtP via cette politique PtMP.
+        if (ptp_link or baseline is None or not baseline.online or baseline.error
+                or baseline.client_count is None or baseline.client_count <= 0
+                or freq_avant not in allowed_frequencies(device)
+                or baseline.freq_mhz != freq_avant or new_freq == freq_avant):
+            logger.warning("Basculement refusé : préconditions de vérification/retour absentes")
+            return False
+
+    success = False
+    result = "neutre"
+    notes = "Simulation : aucun changement réel." if dry_run else ""
+    if dry_run:
+        success = True
+    elif ptp_link:
+        remote = ptp_link.device_b if ptp_link.device_a == device else ptp_link.device_a
+        res = set_frequency(remote, new_freq)
+        if res.get("ok"):
             time.sleep(35)
-            res_local = set_frequency(device, new_freq)
-            if not res_local.get("ok"):
-                logger.error("Changement local échoué : %s", res_local.get("message"))
-                success = False
-            else:
-                time.sleep(35)
-    elif not dry_run:
+            success = bool(set_frequency(device, new_freq).get("ok"))
+        notes = "Changement manuel PtP ; amélioration non mesurée."
+    else:
         res = set_frequency(device, new_freq)
-        if not res.get("ok"):
-            logger.error("Changement de fréquence échoué : %s", res.get("message"))
-            success = False
+        if res.get("blocked"):
+            logger.warning("%s", res.get("message"))
+            return False
+        if res.get("reboot_detected"):
+            config.auto_switch = False
+            config.save(update_fields=["auto_switch"])
+            HistoriqueFrequence.objects.create(
+                device=device, freq_avant=freq_avant, freq_apres=new_freq,
+                raison=raison, declencheur=declencheur, resultat="degrade",
+                notes=res.get("message", "Redémarrage inattendu."), dry_run=False,
+            )
+            return False
+        success = bool(res.get("ok"))
+        notes = res.get("message", "")
+        if automatic:
+            # Même après un échec SSH, une écriture peut avoir eu lieu : vérifier puis restaurer.
+            time.sleep(60)
+            after = None
+            try:
+                after = UbiquitiAirMAXSnmpService(device).fetch_full_metrics()
+                success = verified_improvement(baseline, after, new_freq)
+            except Exception as exc:
+                success = False
+                notes += f" Vérification impossible : {exc}."
+            if success:
+                result = "ameliore"
+                from apps.monitoring.frequency_scanner import record_measurement
+                record_measurement(device, after, source="passif")
+                notes += " Fréquence, clients et gain SNR vérifiés."
+            else:
+                result = "degrade"
+                rollback = set_frequency(device, freq_avant)
+                notes += f" Amélioration non confirmée ; retour demandé à {freq_avant} MHz."
+                time.sleep(60)
+                try:
+                    restored = UbiquitiAirMAXSnmpService(device).fetch_full_metrics()
+                    rollback_ok = (restored.online and not restored.error
+                        and restored.freq_mhz == freq_avant
+                        and restored.client_count is not None
+                        and restored.client_count >= baseline.client_count)
+                except Exception:
+                    rollback_ok = False
+                if not rollback_ok:
+                    config.auto_switch = False
+                    config.save(update_fields=["auto_switch"])
+                    notes += " Retour non confirmé : automatisation désactivée, intervention requise."
+                else:
+                    notes += " Retour et nombre de clients confirmés."
 
     # Enregistrement historique
     HistoriqueFrequence.objects.create(
@@ -174,7 +234,8 @@ def execute_frequency_change(
         snr_avant=snr_avant,
         signal_avant=signal_avant,
         declencheur=declencheur,
-        resultat="ameliore" if success else "neutre",
+        resultat=result,
+        notes=notes,
         dry_run=dry_run,
     )
 
