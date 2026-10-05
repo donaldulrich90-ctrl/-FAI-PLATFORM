@@ -152,3 +152,19 @@ def test_unknown_fast_plan_never_executes(settings):
         result = apply_frequency(MagicMock(return_value=MagicMock()), Obj(), 5200)
     assert result['blocked']
     assert not any(cmd.startswith('/bin/sh ') for cmd in commands)
+
+
+@pytest.mark.parametrize('signal_command', [
+    'kill -1 1', '/bin/kill -HUP 1', 'busybox kill -s HUP 1',
+    'kill -TERM "$pid"', 'reboot', 'shutdown -r now',
+])
+def test_dangerous_plan_is_blocked_even_when_hash_approved(settings, signal_command):
+    plan = signal_command + '\n/bin/chsw 5200 5200'
+    settings.FREQUENCY_FAST_APPLY_PLAN_HASHES = {'': [hashlib.sha256(plan.encode()).hexdigest()]}
+    commands, command = command_fixture(script=plan)
+    with patch('apps.monitoring.services.airos_soft_apply.checked_exec', side_effect=command):
+        result = apply_frequency(MagicMock(return_value=MagicMock()), Obj(), 5200)
+    assert result['blocked'] and not result['ok']
+    assert 'interdit' in result['message']
+    assert not any(cmd.startswith('/bin/sh ') or cmd.startswith('/sbin/cfgmtd ') for cmd in commands)
+    assert any(cmd.startswith('cp /tmp/fai-freq-') and ' /tmp/system.cfg' in cmd for cmd in commands)

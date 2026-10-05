@@ -86,8 +86,11 @@ def apply_frequency(connect, device, target, *, deadline_seconds=120):
         # Un script généré doit avoir été examiné pour cet appareil avant exécution.
         if not plan or not isinstance(hashes, list) or digest not in hashes:
             raise RuntimeError('Plan rapide non validé pour cet appareil : application refusée.')
-        if re.search(r'\b(reboot|shutdown|halt|poweroff|rc_stop|rc_start|rc\.softrestart|rc\.do\.softrestart)\b', plan):
-            raise RuntimeError('Plan rapide interdit : commande de relance générale détectée.')
+        # Refuser toute commande kill, même si l'empreinte a été approuvée.
+        # Le signal envoyé au PID 1 dans certains plans airOS n'est pas validé.
+        # killall reste distinct : les signaux ustatsd ne ciblent pas init.
+        if re.search(r'\b(reboot|shutdown|halt|poweroff|kill|rc_stop|rc_start|rc\.softrestart|rc\.do\.softrestart)\b', plan):
+            raise RuntimeError('Plan rapide interdit : relance générale ou commande kill non validée détectée.')
         plan_file = backup + '.sh'
         checked_exec(client, f'cp /tmp/diff.sh {plan_file}')
         snapshot = checked_exec(client, f'cat {plan_file}')
