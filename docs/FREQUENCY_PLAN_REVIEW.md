@@ -18,6 +18,12 @@ au début du script, avant de créer les sauvegardes. La comparaison utilise
 `diff`, sans dépendre de `cmp` qui peut être absent de BusyBox. Si un outil manque,
 la préparation est refusée ; aucun outil n'est installé sur l'antenne.
 
+Le contrôle de `/etc` compare les empreintes des fichiers ainsi que les chemins,
+destinations des liens, permissions et identifiants des propriétaires/groupes.
+Les dates sont exclues : le tar de certaines versions airOS recrée les liens
+symboliques avec la date courante sans changer leur destination. Une erreur
+d'inventaire fait échouer le contrôle, même si `find` ou `sort` termine normalement.
+
 Comparer d'abord les candidats dans AirMagic. Une fréquence disponible dans
 l'interface ou dans les listes de recherche des clients ne prouve pas que son
 utilisation est autorisée pour l'installation. Confirmer cette autorisation
@@ -57,6 +63,24 @@ Ne pas relancer ni activer l'automatisation avant d'avoir vérifié la
 configuration et la liaison. Une perte de SSH peut empêcher de confirmer la
 restauration, même si le piège shell a été exécuté. Une coupure électrique,
 SIGKILL ou panne du système peut empêcher le piège de s'exécuter.
+
+Pour contrôler une sauvegarde conservée, sans aucune écriture :
+
+```sh
+python manage.py check_frequency_review --device 9 --archive /tmp/fai-review-<identifiant>
+```
+
+Ce contrôle compare l'état actuel aux sauvegardes, en ignorant uniquement les
+dates des anciens inventaires de liens. Il ne restaure aucun fichier et ne
+supprime aucune archive. Il accepte aussi le format d'inventaire historique.
+Les anciens inventaires contiennent les empreintes des fichiers et les
+métadonnées des liens, sans permissions/propriétaires des fichiers ordinaires.
+Le contrôle historique reste limité aux éléments effectivement sauvegardés.
+Après un contrôle réussi et en l'absence d'un autre administrateur appliquant
+des changements, la même commande avec `--release-lock` permet de libérer le
+seul verrou vide. Elle recontrôle les fichiers radio, les marqueurs d'application
+et les processus de préparation ; toute différence ou erreur conserve le verrou.
+Ne pas effacer manuellement le verrou pour contourner un refus.
 
 Un plan préparé et un boot_id inchangé ne prouvent pas encore qu'un changement
 réel de fréquence fonctionnera sans redémarrage. Un essai distinct, avec canal

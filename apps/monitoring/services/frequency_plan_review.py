@@ -25,6 +25,108 @@ test -x /sbin/ubntconf
 '''
 
 
+def inventory_script(*, legacy=False):
+    """Empreintes et métadonnées utiles, sans dates ni écritures sur l'antenne.
+
+    Les marqueurs d'erreur empêchent find/sort de masquer un fichier illisible.
+    Le format historique est conservé pour contrôler les anciennes sauvegardes.
+    """
+    metadata = r'''find . -type l -exec /bin/sh -c 'ls -ld "$1" || echo FAI_INVENTORY_ERROR' sh '{}' ';' || echo FAI_INVENTORY_ERROR'''
+    if not legacy:
+        # Conserver mode, propriétaire, groupe, chemin et destination du lien.
+        # ls -n évite que la résolution des noms d'utilisateurs change le résultat.
+        metadata = r'''{
+    find . -exec /bin/sh -c 'LC_ALL=C ls -ldn "$1" || echo FAI_INVENTORY_ERROR' sh '{}' ';' || echo FAI_INVENTORY_ERROR
+} | sed 's/^\([^ ][^ ]*\)  *[^ ][^ ]*  *\([^ ][^ ]*\)  *\([^ ][^ ]*\)  *[^ ][^ ]*  *[^ ][^ ]*  *[^ ][^ ]*  *[^ ][^ ]*  */META \1 \2 \3 /' || echo FAI_INVENTORY_ERROR'''
+    return r'''(cd /etc && {
+    find . -type f -exec /bin/sh -c 'md5sum "$1" || echo FAI_INVENTORY_ERROR' sh '{}' ';' || echo FAI_INVENTORY_ERROR
+    __METADATA__
+} | LC_ALL=C sort)
+'''.replace('__METADATA__', metadata)
+
+
+def normalize_manifest(text):
+    """Ne retirer que les dates des anciennes lignes décrivant les liens."""
+    if not text:
+        raise ValueError('Inventaire de services vide.')
+    records = []
+    for line in text.splitlines():
+        if re.fullmatch(r'[0-9a-f]{32}  \./[^\r\n]+', line):
+            records.append(line)
+        elif re.fullmatch(r'META [bcdlps-][^ ]{9,} \d+ \d+ (?:\.|\./[^\r\n]+)', line):
+            records.append(line)
+        elif line.startswith('l'):
+            parts = line.split(None, 8)
+            if (len(parts) != 9 or not re.fullmatch(r'l[^ ]{9,}', parts[0])
+                    or not parts[1].isdigit() or not parts[4].isdigit()
+                    or not parts[8].startswith('./') or ' -> ' not in parts[8]):
+                raise ValueError('Inventaire historique de liens non reconnu.')
+            records.append('LINK ' + ' '.join((parts[0], parts[2], parts[3], parts[8])))
+        else:
+            raise ValueError('Inventaire de services incomplet ou non reconnu.')
+    if len(records) != len(set(records)):
+        raise ValueError('Inventaire de services dupliqué.')
+    return sorted(records)
+
+
+def check_saved_review(connect, device, directory, *, release_lock=False):
+    """Contrôler une sauvegarde ; libération explicite du seul verrou vide.
+
+    Aucune restauration ni application de configuration n'est effectuée.
+    Les sauvegardes restent intactes, même si le verrou est libéré.
+    """
+    if not re.fullmatch(r'/tmp/fai-review-[0-9a-f]{32}', directory):
+        return {'ok': False, 'message': 'Répertoire de sauvegarde invalide.'}
+    if getattr(settings, 'FREQUENCY_COMMANDS_VERIFIED', False):
+        return {'ok': False, 'message': 'Désactiver les commandes réelles avant le contrôle.'}
+    client = None
+    try:
+        client = connect(device)
+        checked_exec(client, f'test -d {directory} && test ! -L {directory}')
+        for name in ('system.cfg', 'running.cfg', 'etc.before'):
+            checked_exec(client, f'test -f {directory}/{name} && test ! -L {directory}/{name}')
+        state = inspect_device(client)
+        saved_system = checked_exec(client, f'cat {directory}/system.cfg')
+        saved_running = checked_exec(client, f'cat {directory}/running.cfg')
+        if (saved_system != checked_exec(client, 'cat /tmp/system.cfg')
+                or saved_running != checked_exec(client, 'cat /tmp/running.cfg')):
+            return {'ok': False, 'message': 'Configuration différente de la sauvegarde ; verrou conservé.'}
+        if sorted(saved_system.splitlines()) != sorted(saved_running.splitlines()):
+            return {'ok': False, 'message': 'Sauvegardes de configuration incohérentes ; verrou conservé.'}
+        saved_manifest = checked_exec(client, f'cat {directory}/etc.before')
+        legacy = not any(line.startswith('META ') for line in saved_manifest.splitlines())
+        current_manifest = checked_exec(client, inventory_script(legacy=legacy))
+        if normalize_manifest(saved_manifest) != normalize_manifest(current_manifest):
+            return {'ok': False, 'message': 'Contenu ou métadonnées de services différents ; verrou conservé.'}
+        checked_exec(client, f'''if test -e {directory}/diff.before; then
+    test -f {directory}/diff.before && test ! -L {directory}/diff.before &&
+    test -f /tmp/diff.sh && test ! -L /tmp/diff.sh &&
+    diff {directory}/diff.before /tmp/diff.sh >/dev/null
+else
+    test ! -e /tmp/diff.sh && test ! -L /tmp/diff.sh
+fi''')
+        if runtime(client) != state:
+            return {'ok': False, 'message': 'État radio modifié pendant le contrôle ; verrou conservé.'}
+        if release_lock:
+            processes = checked_exec(client, 'ps')
+            if re.search(r'(^|[ /])ubntconf(?:\s|$)', processes, re.M) or directory in processes:
+                return {'ok': False, 'message': 'Préparation encore en cours ; verrou conservé.'}
+            # Recontrôler les fichiers radio et les marqueurs immédiatement avant
+            # rmdir. Ne jamais supprimer récursivement un verrou ou une archive.
+            checked_exec(client, f'''test -d /tmp/fai-frequency-review.lock && test ! -L /tmp/fai-frequency-review.lock &&
+test ! -e /tmp/.force && test ! -e /var/run/testmode && test ! -e /tmp/.rc_is_running &&
+diff {directory}/system.cfg /tmp/system.cfg >/dev/null &&
+diff {directory}/running.cfg /tmp/running.cfg >/dev/null &&
+rmdir /tmp/fai-frequency-review.lock''')
+        return {'ok': True, 'freq_mhz': state['freq_mhz'], 'archive': directory,
+                'released': release_lock, 'legacy': legacy}
+    except Exception as exc:
+        return {'ok': False, 'message': str(exc)[:240]}
+    finally:
+        if client is not None:
+            client.close()
+
+
 def preparation_script(target, directory):
     """Une seule session shell ; le piège restaure même après un échec/HUP.
 
@@ -47,10 +149,12 @@ same_file() {
     diff "$1" "$2" >/dev/null
 }
 manifest() {
-    (cd /etc && {
-        find . -type f -exec md5sum '{}' ';'
-        find . -type l -exec ls -ld '{}' ';'
-    } | sort)
+    __INVENTORY__ > "$work/inventory.raw" || { echo 'Collecte des services refusée.' >&2; return 1; }
+    if test ! -s "$work/inventory.raw" || grep -q FAI_INVENTORY_ERROR "$work/inventory.raw"; then
+        echo 'Inventaire des services vide ou incomplet.' >&2
+        return 1
+    fi
+    cat "$work/inventory.raw"
 }
 finish() {
     code=$?
@@ -114,7 +218,7 @@ fi
 test ! -e /tmp/.force && test ! -e /var/run/testmode && test ! -e /tmp/.rc_is_running
 test -s /tmp/diff.sh && test ! -L /tmp/diff.sh
 cat /tmp/diff.sh
-'''.replace('__DIRECTORY__', directory).replace('__TARGET__', str(target))
+'''.replace('__DIRECTORY__', directory).replace('__TARGET__', str(target)).replace('__INVENTORY__', inventory_script().strip())
 
 
 def review_frequency_plan(connect, device, target):
